@@ -1,0 +1,56 @@
+- generic [ref=e2]:
+  - generic:
+    - generic:
+      - heading "Graybox Validation" [level=1]
+      - generic:
+        - generic: "Camera: Tactical"
+        - generic: "Tactical mode: Angled"
+        - generic: "Labels: On | Routes: On"
+        - generic: "Player: 0.0, 0.0"
+      - generic:
+        - generic: Selected route
+        - generic: Lane Midline -> Central Contested
+        - generic: mid-access | est 4.71s | target 4.5-5.5s
+        - generic: Probe idle
+        - generic: "Last result: none"
+      - generic:
+        - generic: Legend
+        - generic:
+          - generic: Lane
+          - generic: Safe
+          - generic: Contested
+          - generic: Pressure
+          - generic: Vision
+          - generic: Boss
+          - generic: Risk
+          - generic: Tower/Core
+      - generic:
+        - generic: Controls
+        - list:
+          - listitem: "`WASD` move the proxy"
+          - listitem: "`C` toggle tactical / follow camera"
+          - listitem: "`V` switch tactical angle / top-down"
+          - listitem: "`[` / `]` cycle route probes"
+          - listitem: "`P` teleport to selected route start and begin timing"
+          - listitem: "`L` toggle node labels"
+          - listitem: "`G` toggle route lines"
+          - listitem: "`1-0`, `B`, `R` teleport to major anchors"
+    - generic:
+      - generic: Blue Outer Tower
+      - generic: Lane Midline
+      - generic: Red Outer Tower
+      - generic: Blue Safe Ramp
+      - generic: Blue Safe Pocket
+      - generic: Blue Risk Branch
+      - generic: Central Contested
+      - generic: Vision / Control
+      - generic: Pressure Node
+      - generic: Central Connector
+      - generic: Boss Pocket
+      - generic: Red Safe Pocket
+      - generic: Red Risk Branch
+      - generic: Red Safe Ramp
+      - generic: Pressure Return
+      - generic: Mid Connector Ramp
+      - generic: Boss West Entry
+      - generic: Boss East Entry
