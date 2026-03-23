@@ -1,13 +1,11 @@
 import * as pc from 'playcanvas';
 import { type DebugSystem } from '../debug/debugBuilder';
 import { layoutConfig, routeSelectionOrder } from '../config/layout';
+import { type HeadlessCombatRuntime } from '../gameplay/headlessCombatRuntime';
 import {
   colorFromHex,
-  logicalToWorld,
   surfaceHeightAt,
   type RouteProbeResult,
-  type RuntimeBlocker,
-  type RuntimeWalkArea,
   type SceneRegistry
 } from '../scene/grayboxFactory';
 
@@ -25,7 +23,8 @@ export interface PlayerTestController {
 export const createPlayerTestController = (
   app: pc.Application,
   registry: SceneRegistry,
-  debugSystem: DebugSystem
+  debugSystem: DebugSystem,
+  headlessCombat: HeadlessCombatRuntime
 ): PlayerTestController => {
   const keysDown = new Set<string>();
   const pressedKeys = new Set<string>();
@@ -37,7 +36,14 @@ export const createPlayerTestController = (
   playerMaterial.gloss = 18;
   playerMaterial.update();
 
-  const player = new pc.Entity('TestPawn');
+  const laneBlockerMaterial = new pc.StandardMaterial();
+  const laneBlockerColor = colorFromHex('#d36b62');
+  laneBlockerMaterial.diffuse = laneBlockerColor.clone();
+  laneBlockerMaterial.emissive = laneBlockerColor.clone().mulScalar(0.12);
+  laneBlockerMaterial.gloss = 12;
+  laneBlockerMaterial.update();
+
+  const player = new pc.Entity('AuthoritativeHeroProxy');
   player.addComponent('render', {
     type: 'capsule',
     material: playerMaterial
@@ -49,8 +55,17 @@ export const createPlayerTestController = (
   );
   registry.root.addChild(player);
 
-  let logicalPosition = new pc.Vec2(0, 0);
-  let currentYaw = 0;
+  const laneBlocker = new pc.Entity('LaneBlockerProxy');
+  laneBlocker.addComponent('render', {
+    type: 'cylinder',
+    material: laneBlockerMaterial
+  });
+  laneBlocker.setLocalScale(
+    layoutConfig.player.radius * 2,
+    layoutConfig.player.height * 0.8,
+    layoutConfig.player.radius * 2
+  );
+  registry.root.addChild(laneBlocker);
 
   const tacticalCamera = new pc.Entity('TacticalCamera');
   tacticalCamera.addComponent('camera', {
@@ -70,7 +85,9 @@ export const createPlayerTestController = (
   let useFollowCamera = false;
   let topDownTactical = false;
 
-  const routeIndexById = new Map(routeSelectionOrder.map((routeId, index) => [routeId, index]));
+  const routeIndexById = new Map(
+    routeSelectionOrder.map((routeId, index) => [routeId, index])
+  );
   let selectedRouteIndex = 0;
   let activeProbe: {
     routeId: string;
@@ -84,7 +101,7 @@ export const createPlayerTestController = (
     }
     keysDown.add(key);
 
-    if (['[', ']', 'p', 'g', 'l', 'c', 'v'].includes(key)) {
+    if (['[', ']', 'p', 'g', 'l', 'c', 'v', 'f', 'space'].includes(key)) {
       event.preventDefault();
     }
   };
@@ -97,13 +114,15 @@ export const createPlayerTestController = (
   window.addEventListener('keyup', keyup);
 
   teleportTo('midline');
+  syncCombatPresentation();
   debugSystem.setSelectedRoute(routeSelectionOrder[selectedRouteIndex]);
 
   return {
     update(dt) {
       processHotkeys();
-      updateMovement(dt);
-      updatePlayerTransform();
+      updateMovementIntent();
+      headlessCombat.update(dt);
+      syncCombatPresentation();
       updateCameras(dt);
       updateProbe();
     },
@@ -123,13 +142,16 @@ export const createPlayerTestController = (
       return activeProbe?.routeId ?? null;
     },
     getProbeElapsedSeconds() {
-      return activeProbe ? performance.now() * 0.001 - activeProbe.startTimeSeconds : null;
+      return activeProbe
+        ? performance.now() * 0.001 - activeProbe.startTimeSeconds
+        : null;
     },
     destroy() {
       window.removeEventListener('keydown', keydown);
       window.removeEventListener('keyup', keyup);
       tacticalCamera.destroy();
       followCamera.destroy();
+      laneBlocker.destroy();
       player.destroy();
     }
   };
@@ -153,14 +175,20 @@ export const createPlayerTestController = (
       debugSystem.toggleRoutes();
     }
 
+    if (consumePressed('f') || consumePressed('space')) {
+      headlessCombat.requestPlayerBasicCast();
+    }
+
     if (consumePressed('[')) {
       selectedRouteIndex =
-        (selectedRouteIndex + routeSelectionOrder.length - 1) % routeSelectionOrder.length;
+        (selectedRouteIndex + routeSelectionOrder.length - 1) %
+        routeSelectionOrder.length;
       debugSystem.setSelectedRoute(routeSelectionOrder[selectedRouteIndex]);
     }
 
     if (consumePressed(']')) {
-      selectedRouteIndex = (selectedRouteIndex + 1) % routeSelectionOrder.length;
+      selectedRouteIndex =
+        (selectedRouteIndex + 1) % routeSelectionOrder.length;
       debugSystem.setSelectedRoute(routeSelectionOrder[selectedRouteIndex]);
     }
 
@@ -175,7 +203,7 @@ export const createPlayerTestController = (
     }
   }
 
-  function updateMovement(dt: number): void {
+  function updateMovementIntent(): void {
     let moveX = 0;
     let moveZ = 0;
 
@@ -192,41 +220,56 @@ export const createPlayerTestController = (
       moveX += 1;
     }
 
-    if (moveX === 0 && moveZ === 0) {
-      return;
-    }
-
-    const direction = new pc.Vec2(moveX, moveZ);
-    direction.normalize();
-
-    const frameDistance = layoutConfig.player.moveSpeed * dt;
-    const candidateX = logicalPosition.x + direction.x * frameDistance;
-    const candidateZ = logicalPosition.y + direction.y * frameDistance;
-
-    if (canOccupy(candidateX, logicalPosition.y)) {
-      logicalPosition.x = candidateX;
-    }
-    if (canOccupy(logicalPosition.x, candidateZ)) {
-      logicalPosition.y = candidateZ;
-    }
-
-    const desiredYaw = pc.math.RAD_TO_DEG * Math.atan2(direction.x, direction.y) + 180;
-    currentYaw = lerpAngle(currentYaw, desiredYaw, layoutConfig.player.turnLerp * (1 / 60));
+    headlessCombat.submitPlayerMovementIntent({
+      x: moveX,
+      z: moveZ
+    });
   }
 
-  function updatePlayerTransform(): void {
-    const surfaceHeight = surfaceHeightAt(registry.walkAreas, logicalPosition.x, logicalPosition.y)
-      ?? layoutConfig.elevations.lowerTop;
+  function syncCombatPresentation(): void {
+    const snapshot = headlessCombat.getSnapshot();
+    const playerSurfaceHeight =
+      surfaceHeightAt(
+        registry.walkAreas,
+        snapshot.player.position.x,
+        snapshot.player.position.z
+      ) ?? layoutConfig.elevations.lowerTop;
     player.setPosition(
-      logicalPosition.x,
-      surfaceHeight + layoutConfig.player.height * 0.5,
-      logicalPosition.y
+      snapshot.player.position.x,
+      playerSurfaceHeight + layoutConfig.player.height * 0.5,
+      snapshot.player.position.z
     );
-    player.setEulerAngles(0, currentYaw, 0);
+    player.setEulerAngles(
+      0,
+      pc.math.RAD_TO_DEG *
+        Math.atan2(snapshot.player.facing.x, snapshot.player.facing.z) +
+        180,
+      0
+    );
+
+    if (snapshot.target.alive) {
+      const targetSurfaceHeight =
+        surfaceHeightAt(
+          registry.walkAreas,
+          snapshot.target.position.x,
+          snapshot.target.position.z
+        ) ?? layoutConfig.elevations.lowerTop;
+      laneBlocker.enabled = true;
+      laneBlocker.setPosition(
+        snapshot.target.position.x,
+        targetSurfaceHeight + layoutConfig.player.height * 0.4,
+        snapshot.target.position.z
+      );
+    } else {
+      laneBlocker.enabled = false;
+    }
   }
 
   function updateCameras(dt: number): void {
-    const focusPoint = player.getPosition().clone().add(new pc.Vec3(0, 1.4, 0));
+    const focusPoint = player
+      .getPosition()
+      .clone()
+      .add(new pc.Vec3(0, 1.4, 0));
 
     if (topDownTactical) {
       tacticalCamera.setPosition(0, 138, -20);
@@ -238,7 +281,11 @@ export const createPlayerTestController = (
     const followOffset = new pc.Vec3(0, 18, 18);
     const followTarget = player.getPosition().clone().add(followOffset);
     const currentPosition = followCamera.getPosition();
-    const lerped = currentPosition.lerp(currentPosition, followTarget, Math.min(1, dt * 4));
+    const lerped = currentPosition.lerp(
+      currentPosition,
+      followTarget,
+      Math.min(1, dt * 4)
+    );
     followCamera.setPosition(lerped);
     followCamera.lookAt(focusPoint);
 
@@ -251,14 +298,20 @@ export const createPlayerTestController = (
       return;
     }
 
-    const route = layoutConfig.routes[routeIndexById.get(activeProbe.routeId) ?? 0];
+    const route =
+      layoutConfig.routes[routeIndexById.get(activeProbe.routeId) ?? 0];
     const end = route.waypoints[route.waypoints.length - 1];
-    const distanceToEnd = Math.hypot(end.x - logicalPosition.x, end.y - logicalPosition.y);
+    const playerPosition = headlessCombat.getPlayerPosition();
+    const distanceToEnd = Math.hypot(
+      end.x - playerPosition.x,
+      end.y - playerPosition.z
+    );
     if (distanceToEnd > 2.25) {
       return;
     }
 
-    const elapsed = performance.now() * 0.001 - activeProbe.startTimeSeconds;
+    const elapsed =
+      performance.now() * 0.001 - activeProbe.startTimeSeconds;
     const result: RouteProbeResult = {
       routeId: route.id,
       label: route.label,
@@ -275,9 +328,11 @@ export const createPlayerTestController = (
   function startSelectedProbe(): void {
     const route = layoutConfig.routes[selectedRouteIndex];
     const start = route.waypoints[0];
-    const startHeight = surfaceHeightAt(registry.walkAreas, start.x, start.y) ?? layoutConfig.elevations.lowerTop;
-    logicalPosition = new pc.Vec2(start.x, start.y);
-    player.setPosition(logicalToWorld(start, startHeight + layoutConfig.player.height * 0.5));
+    headlessCombat.teleportPlayer({
+      x: start.x,
+      z: start.y
+    });
+    syncCombatPresentation();
     activeProbe = {
       routeId: route.id,
       startTimeSeconds: performance.now() * 0.001
@@ -290,8 +345,12 @@ export const createPlayerTestController = (
     if (!anchor) {
       return;
     }
-    logicalPosition = new pc.Vec2(anchor.x, anchor.z);
-    player.setPosition(anchor.x, anchor.y + layoutConfig.player.height * 0.5, anchor.z);
+
+    headlessCombat.teleportPlayer({
+      x: anchor.x,
+      z: anchor.z
+    });
+    syncCombatPresentation();
     activeProbe = null;
   }
 
@@ -302,48 +361,12 @@ export const createPlayerTestController = (
     pressedKeys.delete(key);
     return true;
   }
-
-  function canOccupy(x: number, z: number): boolean {
-    if (!isOnWalkableSurface(registry.walkAreas, x, z)) {
-      return false;
-    }
-
-    return !collidesWithBlocker(registry.blockers, x, z);
-  }
 };
 
-const isOnWalkableSurface = (walkAreas: RuntimeWalkArea[], x: number, z: number): boolean =>
-  walkAreas.some((area) => {
-    const edge = layoutConfig.player.edgeBuffer;
-    return (
-      x >= area.xMin + edge &&
-      x <= area.xMax - edge &&
-      z >= area.zMin + edge &&
-      z <= area.zMax - edge
-    );
-  });
-
-const collidesWithBlocker = (
-  blockers: RuntimeBlocker[],
-  x: number,
-  z: number
-): boolean =>
-  blockers.some((blocker) => {
-    const nearestX = pc.math.clamp(x, blocker.xMin, blocker.xMax);
-    const nearestZ = pc.math.clamp(z, blocker.zMin, blocker.zMax);
-    const distanceSquared = (x - nearestX) ** 2 + (z - nearestZ) ** 2;
-    return distanceSquared < layoutConfig.player.radius ** 2;
-  });
-
-const normalizeKey = (key: string): string =>
-  key.length === 1 ? key.toLowerCase() : key.toLowerCase();
-
-const lerpAngle = (current: number, target: number, t: number): number => {
-  let delta = (target - current) % 360;
-  if (delta > 180) {
-    delta -= 360;
-  } else if (delta < -180) {
-    delta += 360;
+const normalizeKey = (key: string): string => {
+  if (key === ' ') {
+    return 'space';
   }
-  return current + delta * Math.min(1, t);
+
+  return key.length === 1 ? key.toLowerCase() : key.toLowerCase();
 };

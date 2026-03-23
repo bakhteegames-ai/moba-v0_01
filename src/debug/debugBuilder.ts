@@ -1,6 +1,7 @@
 import * as pc from 'playcanvas';
 import { layoutConfig, type RouteDef, type ValidationBand, type ZoneCategory } from '../config/layout';
 import { type RouteProbeResult, colorFromHex, type SceneRegistry } from '../scene/grayboxFactory';
+import { type HeadlessCombatRuntimeSnapshot } from '../gameplay/headlessCombatRuntime';
 import {
   type LiveInteractionCalibrationOperatorControls,
   type LiveInteractionDebugState
@@ -15,6 +16,7 @@ export interface DebugUpdateState {
   tacticalModeLabel: string;
   activeProbeRouteId: string | null;
   probeElapsedSeconds: number | null;
+  headlessCombat?: HeadlessCombatRuntimeSnapshot;
   liveInteraction?: LiveInteractionDebugState;
   liveInteractionControls?: LiveInteractionCalibrationOperatorControls;
   tempo?: TempoHarnessDebugState;
@@ -121,6 +123,7 @@ export const createDebugSystem = (
 
   const controls = [
     '`WASD` move the proxy',
+    '`F` / `Space` queue the authoritative basic cast on the lane blocker',
     '`C` toggle tactical / follow camera',
     '`V` switch tactical angle / top-down',
     '`[` / `]` cycle route probes',
@@ -348,6 +351,17 @@ export const createDebugSystem = (
         <div class="debug-muted">Next stage in: <span class="debug-strong">${wavePressure.secondsToNextStage.toFixed(1)}s</span></div>
       `
       : '<div class="debug-muted">Wave-pressure simulation unavailable.</div>';
+    const headlessCombat = state?.headlessCombat;
+    const headlessCombatMarkup = headlessCombat
+      ? `
+        <div class="debug-muted">Hero: <span class="debug-strong">${formatCombatHitPoints(headlessCombat.player.currentHp, headlessCombat.player.maxHp)}</span> | alive <span class="debug-strong">${headlessCombat.player.alive ? 'Yes' : 'No'}</span> | cd <span class="debug-strong">${headlessCombat.player.basicAbilityCooldownRemaining.toFixed(2)}s</span></div>
+        <div class="debug-muted">Lane blocker: <span class="debug-strong">${formatCombatHitPoints(headlessCombat.target.currentHp, headlessCombat.target.maxHp)}</span> | alive <span class="debug-strong">${headlessCombat.target.alive ? 'Yes' : 'No'}</span> | pos <span class="debug-strong">${headlessCombat.target.position.x.toFixed(1)}, ${headlessCombat.target.position.z.toFixed(1)}</span></div>
+        <div class="debug-muted">Last cast: <span class="debug-strong">${formatHeadlessCombatCastResult(headlessCombat.lastResolvedCast)}</span></div>
+        <div class="debug-muted">Failure reason: <span class="debug-strong">${formatHeadlessCombatFailureReason(headlessCombat.lastLegalityFailureReason)}</span></div>
+        <div class="debug-muted">Lane bridge: hero <span class="debug-strong">${formatPressureSegment(headlessCombat.laneBridge.hero.lanePressureSegment)}</span>, blocker <span class="debug-strong">${formatPressureSegment(headlessCombat.laneBridge.blocker.lanePressureSegment)}</span> / <span class="debug-strong">${formatStructureTier(headlessCombat.laneBridge.blocker.structurePressureTier)}</span> | pressure <span class="debug-strong">${formatSignedDelta(headlessCombat.laneBridge.lanePressureDelta)}</span> | occupancy <span class="debug-strong">${headlessCombat.laneBridge.occupancyAdvantage.toFixed(2)}</span> | opportunity <span class="debug-strong">${headlessCombat.laneBridge.structurePressureOpportunityActive ? 'Open' : 'Closed'}</span> ${headlessCombat.laneBridge.opportunityWindowRemainingSeconds.toFixed(2)}s</div>
+        <div class="debug-muted">Bridge outcome: <span class="debug-strong">${headlessCombat.laneBridge.lastBridgeOutcome.summary}</span> | proof <span class="debug-strong">${headlessCombat.laneDeterminismProof.passed ? 'Deterministic' : 'Mismatch'}</span></div>
+      `
+      : '<div class="debug-muted">Headless combat slice unavailable.</div>';
     const liveInteraction = state?.liveInteraction;
     const operatorControlsEnabled = Boolean(liveInteractionControls && liveInteraction);
     Object.values(operatorButtons).forEach((button) => {
@@ -481,6 +495,10 @@ export const createDebugSystem = (
         <div class="debug-muted">${selectedRouteSummary}</div>
         ${liveProbe}
         ${resultMarkup}
+      </section>
+      <section>
+        <div class="debug-muted">Headless Combat Slice</div>
+        ${headlessCombatMarkup}
       </section>
       <section>
         <div class="debug-muted">Wave Pressure Sim</div>
@@ -1334,6 +1352,36 @@ const formatCalibrationOperatorDisposition = (
             : disposition === 'rerun-for-signal'
               ? 'Rerun For Signal'
               : 'Clear Frozen Review';
+
+const formatCombatHitPoints = (currentHp: number, maxHp: number): string =>
+  `${currentHp}/${maxHp}`;
+
+const formatHeadlessCombatCastResult = (
+  result: HeadlessCombatRuntimeSnapshot['lastResolvedCast']
+): string => {
+  if (!result) {
+    return 'No cast yet';
+  }
+
+  if (result.success) {
+    return `Hit ${result.targetEntityId} for ${result.damageApplied} (${result.targetHpAfter ?? 0} HP left)`;
+  }
+
+  return `Rejected ${formatHeadlessCombatFailureReason(result.failureReason ?? 'none')}`;
+};
+
+const formatHeadlessCombatFailureReason = (
+  reason: HeadlessCombatRuntimeSnapshot['lastLegalityFailureReason']
+): string =>
+  reason === 'on-cooldown'
+    ? 'On Cooldown'
+    : reason === 'out-of-range'
+      ? 'Out Of Range'
+      : reason === 'dead-actor'
+        ? 'Dead Actor'
+        : reason === 'invalid-target'
+          ? 'Invalid Target'
+          : 'None';
 
 const formatCalibrationBlockingFactors = (factors: string[]): string =>
   factors.length > 0 ? factors.join(', ') : 'None';

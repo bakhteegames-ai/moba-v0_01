@@ -1,743 +1,1354 @@
-diff --git a/src/gameplay/prototypeLaneStateLoop.ts b/src/gameplay/prototypeLaneStateLoop.ts
-index b412464..f7fd955 100644
---- a/src/gameplay/prototypeLaneStateLoop.ts
-+++ b/src/gameplay/prototypeLaneStateLoop.ts
-@@ -34,0 +35,4 @@ import {
-+import {
-+  createClosurePacingWatch,
-+  type ClosurePacingWatchSnapshot
-+} from './closurePacingWatch';
-@@ -75,0 +80 @@ export interface PrototypeLaneStateSnapshot {
-+  closurePacingWatch: ClosurePacingWatchSnapshot;
-@@ -119,0 +125 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
-+  const closurePacingWatch = createClosurePacingWatch();
-@@ -175,0 +182,11 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
-+      closurePacingWatch.update(dt, {
-+        elapsedSeconds: memory.elapsedSeconds,
-+        cycleSeconds: occupancy.cycleSeconds,
-+        pacing: closurePacingSnapshot,
-+        laneClosure: laneClosureSnapshot,
-+        resolutionByTier: {
-+          outer: resolutionSnapshot.byTier.outer,
-+          inner: resolutionSnapshot.byTier.inner,
-+          core: resolutionSnapshot.byTier.core
-+        }
-+      });
-@@ -193,0 +211 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
-+      const closurePacingWatchSnapshot = closurePacingWatch.getSnapshot();
-@@ -200 +218,2 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
--        closurePacingSnapshot
-+        closurePacingSnapshot,
-+        closurePacingWatchSnapshot
-@@ -242 +261,2 @@ const computeSnapshot = (
--  closurePacingSnapshot: ClosurePacingSnapshot
-+  closurePacingSnapshot: ClosurePacingSnapshot,
-+  closurePacingWatchSnapshot: ClosurePacingWatchSnapshot
-@@ -480 +500,2 @@ const computeSnapshot = (
--    closurePacing: cloneClosurePacingSnapshot(closurePacingSnapshot)
-+    closurePacing: cloneClosurePacingSnapshot(closurePacingSnapshot),
-+    closurePacingWatch: cloneClosurePacingWatchSnapshot(closurePacingWatchSnapshot)
-@@ -706,0 +728,31 @@ const cloneClosurePacingSnapshot = (
-+const cloneClosurePacingWatchSnapshot = (
-+  snapshot: ClosurePacingWatchSnapshot
-+): ClosurePacingWatchSnapshot => ({
-+  healthState: snapshot.healthState,
-+  healthStateAgeSeconds: snapshot.healthStateAgeSeconds,
-+  currentStateDwellSeconds: snapshot.currentStateDwellSeconds,
-+  firstEntrySecondsByState: {
-+    ...snapshot.firstEntrySecondsByState
-+  },
-+  cumulativeDwellSecondsByState: {
-+    ...snapshot.cumulativeDwellSecondsByState
-+  },
-+  entryCountByState: {
-+    ...snapshot.entryCountByState
-+  },
-+  exitCountByState: {
-+    ...snapshot.exitCountByState
-+  },
-+  stickyAntiStallEvents: snapshot.stickyAntiStallEvents,
-+  stickyClosureWindowEvents: snapshot.stickyClosureWindowEvents,
-+  prolongedReadinessEvents: snapshot.prolongedReadinessEvents,
-+  prematureResetEvents: snapshot.prematureResetEvents,
-+  legitimateResetWindows: snapshot.legitimateResetWindows,
-+  orderFlags: {
-+    ...snapshot.orderFlags
-+  },
-+  calibration: {
-+    ...snapshot.calibration
+--- a/src/main.ts
++++ b/src/main.ts
+@@ -1,6 +1,8 @@
+ import * as pc from 'playcanvas';
+ import './styles.css';
++import { layoutConfig } from './config/layout';
+ import { createDebugSystem } from './debug/debugBuilder';
++import { createHeadlessCombatRuntime } from './gameplay/headlessCombatRuntime';
+ import { createPlayerTestController } from './player/playerTestController';
+ import { buildGrayboxScene } from './scene/buildGrayboxScene';
+ import { createLiveInteractionValidator } from './validation/liveInteractionValidator';
+@@ -19,18 +21,25 @@
+ window.addEventListener('resize', () => app.resizeCanvas());
+ 
+ const registry = buildGrayboxScene(app);
++const headlessCombat = createHeadlessCombatRuntime();
+ const liveInteractionValidator = createLiveInteractionValidator();
+ const liveInteractionControls = liveInteractionValidator.getCalibrationOperatorControls();
+ const debugSystem = createDebugSystem(registry);
+-const playerController = createPlayerTestController(app, registry, debugSystem);
++const playerController = createPlayerTestController(
++  app,
++  registry,
++  debugSystem,
++  headlessCombat
++);
+ const tempoHarness = createTempoHarness();
+ const wavePressureValidator = createWavePressureValidator(registry);
+ 
+-app.on('update', (dt: number) => {
++const runFrame = (dt: number): void => {
+   playerController.update(dt);
+   liveInteractionValidator.update(dt);
+   tempoHarness.update(dt);
+   wavePressureValidator.update(dt);
++  const headlessCombatSnapshot = headlessCombat.getSnapshot();
+   debugSystem.update({
+     playerPosition: playerController.getPlayerPosition(),
+     camera: playerController.getActiveCamera(),
+@@ -38,11 +47,72 @@
+     tacticalModeLabel: playerController.getTacticalModeLabel(),
+     activeProbeRouteId: playerController.getProbeRouteId(),
+     probeElapsedSeconds: playerController.getProbeElapsedSeconds(),
++    headlessCombat: headlessCombatSnapshot,
+     liveInteraction: liveInteractionValidator.getDebugState(),
+     liveInteractionControls,
+     tempo: tempoHarness.getDebugState(),
+     wavePressure: wavePressureValidator.getDebugState()
+   });
+-});
++};
++
++app.on('update', runFrame);
++
++const debugWindow = window as Window & {
++  advanceTime?: (ms: number) => void;
++  render_game_to_text?: () => string;
++};
++
++debugWindow.advanceTime = (ms: number): void => {
++  const fixedStepSeconds = 1 / 60;
++  const steps = Math.max(1, Math.round(ms / (fixedStepSeconds * 1000)));
++  for (let stepIndex = 0; stepIndex < steps; stepIndex += 1) {
++    runFrame(fixedStepSeconds);
 +  }
-+});
++};
 +
-
-diff --git a/src/gameplay/livePrototypeSignalProvider.ts b/src/gameplay/livePrototypeSignalProvider.ts
-index 3cadfdb..106e798 100644
---- a/src/gameplay/livePrototypeSignalProvider.ts
-+++ b/src/gameplay/livePrototypeSignalProvider.ts
-@@ -19,0 +20 @@ import { type ClosurePacingState } from './closurePacingInterpreter';
-+import { type ClosurePacingHealthState } from './closurePacingWatch';
-@@ -148,0 +150,48 @@ export interface LivePrototypeSignalProviderDebugState {
-+  closurePacingWatch: {
-+    healthState: ClosurePacingHealthState;
-+    healthStateAgeSeconds: number;
-+    currentStateDwellSeconds: number;
-+    firstEntrySecondsByState: {
-+      'normal-pressure': number | null;
-+      'rising-anti-stall': number | null;
-+      'closure-readiness': number | null;
-+      'accelerated-closure-window': number | null;
-+      'defender-reset-window': number | null;
-+    };
-+    cumulativeDwellSecondsByState: {
-+      'normal-pressure': number;
-+      'rising-anti-stall': number;
-+      'closure-readiness': number;
-+      'accelerated-closure-window': number;
-+      'defender-reset-window': number;
-+    };
-+    entryCountByState: {
-+      'normal-pressure': number;
-+      'rising-anti-stall': number;
-+      'closure-readiness': number;
-+      'accelerated-closure-window': number;
-+      'defender-reset-window': number;
-+    };
-+    exitCountByState: {
-+      'normal-pressure': number;
-+      'rising-anti-stall': number;
-+      'closure-readiness': number;
-+      'accelerated-closure-window': number;
-+      'defender-reset-window': number;
-+    };
-+    stickyAntiStallEvents: number;
-+    stickyClosureWindowEvents: number;
-+    prolongedReadinessEvents: number;
-+    prematureResetEvents: number;
-+    legitimateResetWindows: number;
-+    orderFlags: {
-+      risingSeenBeforeReadiness: boolean;
-+      readinessSeenBeforeClosureWindow: boolean;
-+      resetSeenAfterReadiness: boolean;
-+    };
-+    pacingHealthScalar: number;
-+    escalationTimingScalar: number;
-+    closureStickinessScalar: number;
-+    defenderResetQualityScalar: number;
-+    progressionOrderScalar: number;
-+  };
-@@ -156,0 +206 @@ export interface LivePrototypeSignalEventContext {
-+  closurePacingWatch: LivePrototypeSignalProviderDebugState['closurePacingWatch'];
-@@ -212 +262,2 @@ export const createLivePrototypeSignalProvider =
--          closurePacing: cloneClosurePacingDebug(snapshot)
-+          closurePacing: cloneClosurePacingDebug(snapshot),
-+          closurePacingWatch: cloneClosurePacingWatchDebug(snapshot)
-@@ -243,0 +295 @@ export const createLivePrototypeSignalProvider =
-+          closurePacingWatch: cloneClosurePacingWatchDebug(snapshot),
-@@ -836,0 +889,34 @@ const cloneClosurePacingDebug = (
-+const cloneClosurePacingWatchDebug = (
-+  snapshot: PrototypeLaneStateSnapshot
-+): LivePrototypeSignalProviderDebugState['closurePacingWatch'] => ({
-+  healthState: snapshot.closurePacingWatch.healthState,
-+  healthStateAgeSeconds: snapshot.closurePacingWatch.healthStateAgeSeconds,
-+  currentStateDwellSeconds: snapshot.closurePacingWatch.currentStateDwellSeconds,
-+  firstEntrySecondsByState: {
-+    ...snapshot.closurePacingWatch.firstEntrySecondsByState
-+  },
-+  cumulativeDwellSecondsByState: {
-+    ...snapshot.closurePacingWatch.cumulativeDwellSecondsByState
-+  },
-+  entryCountByState: {
-+    ...snapshot.closurePacingWatch.entryCountByState
-+  },
-+  exitCountByState: {
-+    ...snapshot.closurePacingWatch.exitCountByState
-+  },
-+  stickyAntiStallEvents: snapshot.closurePacingWatch.stickyAntiStallEvents,
-+  stickyClosureWindowEvents: snapshot.closurePacingWatch.stickyClosureWindowEvents,
-+  prolongedReadinessEvents: snapshot.closurePacingWatch.prolongedReadinessEvents,
-+  prematureResetEvents: snapshot.closurePacingWatch.prematureResetEvents,
-+  legitimateResetWindows: snapshot.closurePacingWatch.legitimateResetWindows,
-+  orderFlags: {
-+    ...snapshot.closurePacingWatch.orderFlags
-+  },
-+  pacingHealthScalar: snapshot.closurePacingWatch.calibration.pacingHealthScalar,
-+  escalationTimingScalar: snapshot.closurePacingWatch.calibration.escalationTimingScalar,
-+  closureStickinessScalar: snapshot.closurePacingWatch.calibration.closureStickinessScalar,
-+  defenderResetQualityScalar:
-+    snapshot.closurePacingWatch.calibration.defenderResetQualityScalar,
-+  progressionOrderScalar: snapshot.closurePacingWatch.calibration.progressionOrderScalar
-+});
++debugWindow.render_game_to_text = (): string => {
++  const snapshot = headlessCombat.getSnapshot();
++  return JSON.stringify({
++    coordinateSystem: {
++      origin: layoutConfig.coordinateModel.origin,
++      xAxis: layoutConfig.coordinateModel.xAxis,
++      zAxis: layoutConfig.coordinateModel.yAxis
++    },
++    combat: {
++      elapsedSeconds: round(snapshot.elapsedSeconds),
++      player: {
++        x: round(snapshot.player.position.x),
++        z: round(snapshot.player.position.z),
++        hp: snapshot.player.currentHp,
++        maxHp: snapshot.player.maxHp,
++        alive: snapshot.player.alive,
++        cooldownRemaining: round(
++          snapshot.player.basicAbilityCooldownRemaining
++        )
++      },
++      target: {
++        x: round(snapshot.target.position.x),
++        z: round(snapshot.target.position.z),
++        hp: snapshot.target.currentHp,
++        maxHp: snapshot.target.maxHp,
++        alive: snapshot.target.alive
++      },
++      lastCast: snapshot.lastResolvedCast
++        ? {
++            success: snapshot.lastResolvedCast.success,
++            targetEntityId: snapshot.lastResolvedCast.targetEntityId,
++            damageApplied: snapshot.lastResolvedCast.damageApplied,
++            failureReason: snapshot.lastResolvedCast.failureReason,
++            cooldownRemaining: round(
++              snapshot.lastResolvedCast.cooldownRemaining
++            )
++          }
++        : null,
++      lastLegalityFailureReason: snapshot.lastLegalityFailureReason
++    }
++  });
++};
+ 
+ app.start();
 +
-
-diff --git a/src/debug/debugBuilder.ts b/src/debug/debugBuilder.ts
-index 40394b6..de1d253 100644
++const round = (value: number): number => Math.round(value * 100) / 100;
+--- a/src/player/playerTestController.ts
++++ b/src/player/playerTestController.ts
+@@ -1,13 +1,11 @@
+ import * as pc from 'playcanvas';
+ import { type DebugSystem } from '../debug/debugBuilder';
+ import { layoutConfig, routeSelectionOrder } from '../config/layout';
++import { type HeadlessCombatRuntime } from '../gameplay/headlessCombatRuntime';
+ import {
+   colorFromHex,
+-  logicalToWorld,
+   surfaceHeightAt,
+   type RouteProbeResult,
+-  type RuntimeBlocker,
+-  type RuntimeWalkArea,
+   type SceneRegistry
+ } from '../scene/grayboxFactory';
+ 
+@@ -25,7 +23,8 @@
+ export const createPlayerTestController = (
+   app: pc.Application,
+   registry: SceneRegistry,
+-  debugSystem: DebugSystem
++  debugSystem: DebugSystem,
++  headlessCombat: HeadlessCombatRuntime
+ ): PlayerTestController => {
+   const keysDown = new Set<string>();
+   const pressedKeys = new Set<string>();
+@@ -37,7 +36,14 @@
+   playerMaterial.gloss = 18;
+   playerMaterial.update();
+ 
+-  const player = new pc.Entity('TestPawn');
++  const dummyMaterial = new pc.StandardMaterial();
++  const dummyColor = colorFromHex('#d36b62');
++  dummyMaterial.diffuse = dummyColor.clone();
++  dummyMaterial.emissive = dummyColor.clone().mulScalar(0.12);
++  dummyMaterial.gloss = 12;
++  dummyMaterial.update();
++
++  const player = new pc.Entity('AuthoritativeHeroProxy');
+   player.addComponent('render', {
+     type: 'capsule',
+     material: playerMaterial
+@@ -49,8 +55,17 @@
+   );
+   registry.root.addChild(player);
+ 
+-  let logicalPosition = new pc.Vec2(0, 0);
+-  let currentYaw = 0;
++  const dummyTarget = new pc.Entity('CombatDummyProxy');
++  dummyTarget.addComponent('render', {
++    type: 'cylinder',
++    material: dummyMaterial
++  });
++  dummyTarget.setLocalScale(
++    layoutConfig.player.radius * 2,
++    layoutConfig.player.height * 0.8,
++    layoutConfig.player.radius * 2
++  );
++  registry.root.addChild(dummyTarget);
+ 
+   const tacticalCamera = new pc.Entity('TacticalCamera');
+   tacticalCamera.addComponent('camera', {
+@@ -70,7 +85,9 @@
+   let useFollowCamera = false;
+   let topDownTactical = false;
+ 
+-  const routeIndexById = new Map(routeSelectionOrder.map((routeId, index) => [routeId, index]));
++  const routeIndexById = new Map(
++    routeSelectionOrder.map((routeId, index) => [routeId, index])
++  );
+   let selectedRouteIndex = 0;
+   let activeProbe: {
+     routeId: string;
+@@ -84,7 +101,7 @@
+     }
+     keysDown.add(key);
+ 
+-    if (['[', ']', 'p', 'g', 'l', 'c', 'v'].includes(key)) {
++    if (['[', ']', 'p', 'g', 'l', 'c', 'v', 'f', 'space'].includes(key)) {
+       event.preventDefault();
+     }
+   };
+@@ -97,13 +114,15 @@
+   window.addEventListener('keyup', keyup);
+ 
+   teleportTo('midline');
++  syncCombatPresentation();
+   debugSystem.setSelectedRoute(routeSelectionOrder[selectedRouteIndex]);
+ 
+   return {
+     update(dt) {
+       processHotkeys();
+-      updateMovement(dt);
+-      updatePlayerTransform();
++      updateMovementIntent();
++      headlessCombat.update(dt);
++      syncCombatPresentation();
+       updateCameras(dt);
+       updateProbe();
+     },
+@@ -123,13 +142,16 @@
+       return activeProbe?.routeId ?? null;
+     },
+     getProbeElapsedSeconds() {
+-      return activeProbe ? performance.now() * 0.001 - activeProbe.startTimeSeconds : null;
++      return activeProbe
++        ? performance.now() * 0.001 - activeProbe.startTimeSeconds
++        : null;
+     },
+     destroy() {
+       window.removeEventListener('keydown', keydown);
+       window.removeEventListener('keyup', keyup);
+       tacticalCamera.destroy();
+       followCamera.destroy();
++      dummyTarget.destroy();
+       player.destroy();
+     }
+   };
+@@ -153,14 +175,20 @@
+       debugSystem.toggleRoutes();
+     }
+ 
++    if (consumePressed('f') || consumePressed('space')) {
++      headlessCombat.requestPlayerBasicCast();
++    }
++
+     if (consumePressed('[')) {
+       selectedRouteIndex =
+-        (selectedRouteIndex + routeSelectionOrder.length - 1) % routeSelectionOrder.length;
++        (selectedRouteIndex + routeSelectionOrder.length - 1) %
++        routeSelectionOrder.length;
+       debugSystem.setSelectedRoute(routeSelectionOrder[selectedRouteIndex]);
+     }
+ 
+     if (consumePressed(']')) {
+-      selectedRouteIndex = (selectedRouteIndex + 1) % routeSelectionOrder.length;
++      selectedRouteIndex =
++        (selectedRouteIndex + 1) % routeSelectionOrder.length;
+       debugSystem.setSelectedRoute(routeSelectionOrder[selectedRouteIndex]);
+     }
+ 
+@@ -175,7 +203,7 @@
+     }
+   }
+ 
+-  function updateMovement(dt: number): void {
++  function updateMovementIntent(): void {
+     let moveX = 0;
+     let moveZ = 0;
+ 
+@@ -192,41 +220,56 @@
+       moveX += 1;
+     }
+ 
+-    if (moveX === 0 && moveZ === 0) {
+-      return;
+-    }
+-
+-    const direction = new pc.Vec2(moveX, moveZ);
+-    direction.normalize();
+-
+-    const frameDistance = layoutConfig.player.moveSpeed * dt;
+-    const candidateX = logicalPosition.x + direction.x * frameDistance;
+-    const candidateZ = logicalPosition.y + direction.y * frameDistance;
+-
+-    if (canOccupy(candidateX, logicalPosition.y)) {
+-      logicalPosition.x = candidateX;
+-    }
+-    if (canOccupy(logicalPosition.x, candidateZ)) {
+-      logicalPosition.y = candidateZ;
+-    }
+-
+-    const desiredYaw = pc.math.RAD_TO_DEG * Math.atan2(direction.x, direction.y) + 180;
+-    currentYaw = lerpAngle(currentYaw, desiredYaw, layoutConfig.player.turnLerp * (1 / 60));
+-  }
+-
+-  function updatePlayerTransform(): void {
+-    const surfaceHeight = surfaceHeightAt(registry.walkAreas, logicalPosition.x, logicalPosition.y)
+-      ?? layoutConfig.elevations.lowerTop;
++    headlessCombat.submitPlayerMovementIntent({
++      x: moveX,
++      z: moveZ
++    });
++  }
++
++  function syncCombatPresentation(): void {
++    const snapshot = headlessCombat.getSnapshot();
++    const playerSurfaceHeight =
++      surfaceHeightAt(
++        registry.walkAreas,
++        snapshot.player.position.x,
++        snapshot.player.position.z
++      ) ?? layoutConfig.elevations.lowerTop;
+     player.setPosition(
+-      logicalPosition.x,
+-      surfaceHeight + layoutConfig.player.height * 0.5,
+-      logicalPosition.y
++      snapshot.player.position.x,
++      playerSurfaceHeight + layoutConfig.player.height * 0.5,
++      snapshot.player.position.z
+     );
+-    player.setEulerAngles(0, currentYaw, 0);
++    player.setEulerAngles(
++      0,
++      pc.math.RAD_TO_DEG *
++        Math.atan2(snapshot.player.facing.x, snapshot.player.facing.z) +
++        180,
++      0
++    );
++
++    if (snapshot.target.alive) {
++      const targetSurfaceHeight =
++        surfaceHeightAt(
++          registry.walkAreas,
++          snapshot.target.position.x,
++          snapshot.target.position.z
++        ) ?? layoutConfig.elevations.lowerTop;
++      dummyTarget.enabled = true;
++      dummyTarget.setPosition(
++        snapshot.target.position.x,
++        targetSurfaceHeight + layoutConfig.player.height * 0.4,
++        snapshot.target.position.z
++      );
++    } else {
++      dummyTarget.enabled = false;
++    }
+   }
+ 
+   function updateCameras(dt: number): void {
+-    const focusPoint = player.getPosition().clone().add(new pc.Vec3(0, 1.4, 0));
++    const focusPoint = player
++      .getPosition()
++      .clone()
++      .add(new pc.Vec3(0, 1.4, 0));
+ 
+     if (topDownTactical) {
+       tacticalCamera.setPosition(0, 138, -20);
+@@ -238,7 +281,11 @@
+     const followOffset = new pc.Vec3(0, 18, 18);
+     const followTarget = player.getPosition().clone().add(followOffset);
+     const currentPosition = followCamera.getPosition();
+-    const lerped = currentPosition.lerp(currentPosition, followTarget, Math.min(1, dt * 4));
++    const lerped = currentPosition.lerp(
++      currentPosition,
++      followTarget,
++      Math.min(1, dt * 4)
++    );
+     followCamera.setPosition(lerped);
+     followCamera.lookAt(focusPoint);
+ 
+@@ -251,14 +298,20 @@
+       return;
+     }
+ 
+-    const route = layoutConfig.routes[routeIndexById.get(activeProbe.routeId) ?? 0];
++    const route =
++      layoutConfig.routes[routeIndexById.get(activeProbe.routeId) ?? 0];
+     const end = route.waypoints[route.waypoints.length - 1];
+-    const distanceToEnd = Math.hypot(end.x - logicalPosition.x, end.y - logicalPosition.y);
++    const playerPosition = headlessCombat.getPlayerPosition();
++    const distanceToEnd = Math.hypot(
++      end.x - playerPosition.x,
++      end.y - playerPosition.z
++    );
+     if (distanceToEnd > 2.25) {
+       return;
+     }
+ 
+-    const elapsed = performance.now() * 0.001 - activeProbe.startTimeSeconds;
++    const elapsed =
++      performance.now() * 0.001 - activeProbe.startTimeSeconds;
+     const result: RouteProbeResult = {
+       routeId: route.id,
+       label: route.label,
+@@ -275,9 +328,11 @@
+   function startSelectedProbe(): void {
+     const route = layoutConfig.routes[selectedRouteIndex];
+     const start = route.waypoints[0];
+-    const startHeight = surfaceHeightAt(registry.walkAreas, start.x, start.y) ?? layoutConfig.elevations.lowerTop;
+-    logicalPosition = new pc.Vec2(start.x, start.y);
+-    player.setPosition(logicalToWorld(start, startHeight + layoutConfig.player.height * 0.5));
++    headlessCombat.teleportPlayer({
++      x: start.x,
++      z: start.y
++    });
++    syncCombatPresentation();
+     activeProbe = {
+       routeId: route.id,
+       startTimeSeconds: performance.now() * 0.001
+@@ -290,8 +345,12 @@
+     if (!anchor) {
+       return;
+     }
+-    logicalPosition = new pc.Vec2(anchor.x, anchor.z);
+-    player.setPosition(anchor.x, anchor.y + layoutConfig.player.height * 0.5, anchor.z);
++
++    headlessCombat.teleportPlayer({
++      x: anchor.x,
++      z: anchor.z
++    });
++    syncCombatPresentation();
+     activeProbe = null;
+   }
+ 
+@@ -302,48 +361,12 @@
+     pressedKeys.delete(key);
+     return true;
+   }
+-
+-  function canOccupy(x: number, z: number): boolean {
+-    if (!isOnWalkableSurface(registry.walkAreas, x, z)) {
+-      return false;
+-    }
+-
+-    return !collidesWithBlocker(registry.blockers, x, z);
+-  }
+ };
+ 
+-const isOnWalkableSurface = (walkAreas: RuntimeWalkArea[], x: number, z: number): boolean =>
+-  walkAreas.some((area) => {
+-    const edge = layoutConfig.player.edgeBuffer;
+-    return (
+-      x >= area.xMin + edge &&
+-      x <= area.xMax - edge &&
+-      z >= area.zMin + edge &&
+-      z <= area.zMax - edge
+-    );
+-  });
+-
+-const collidesWithBlocker = (
+-  blockers: RuntimeBlocker[],
+-  x: number,
+-  z: number
+-): boolean =>
+-  blockers.some((blocker) => {
+-    const nearestX = pc.math.clamp(x, blocker.xMin, blocker.xMax);
+-    const nearestZ = pc.math.clamp(z, blocker.zMin, blocker.zMax);
+-    const distanceSquared = (x - nearestX) ** 2 + (z - nearestZ) ** 2;
+-    return distanceSquared < layoutConfig.player.radius ** 2;
+-  });
+-
+-const normalizeKey = (key: string): string =>
+-  key.length === 1 ? key.toLowerCase() : key.toLowerCase();
+-
+-const lerpAngle = (current: number, target: number, t: number): number => {
+-  let delta = (target - current) % 360;
+-  if (delta > 180) {
+-    delta -= 360;
+-  } else if (delta < -180) {
+-    delta += 360;
+-  }
+-  return current + delta * Math.min(1, t);
++const normalizeKey = (key: string): string => {
++  if (key === ' ') {
++    return 'space';
++  }
++
++  return key.length === 1 ? key.toLowerCase() : key.toLowerCase();
+ };
 --- a/src/debug/debugBuilder.ts
 +++ b/src/debug/debugBuilder.ts
-@@ -137,0 +138,4 @@ export const createDebugSystem = (
-+        <div class="debug-muted">Pacing watch health: <span class="debug-strong">${formatClosurePacingHealthState(liveInteraction.signalProvider.closurePacingWatch.healthState)}</span> age ${liveInteraction.signalProvider.closurePacingWatch.healthStateAgeSeconds.toFixed(1)}s | dwell ${liveInteraction.signalProvider.closurePacingWatch.currentStateDwellSeconds.toFixed(1)}s</div>
-+        <div class="debug-muted">Pacing watch scalars: health <span class="debug-strong">${liveInteraction.signalProvider.closurePacingWatch.pacingHealthScalar.toFixed(3)}</span>, timing <span class="debug-strong">${liveInteraction.signalProvider.closurePacingWatch.escalationTimingScalar.toFixed(3)}</span>, stickiness <span class="debug-strong">${liveInteraction.signalProvider.closurePacingWatch.closureStickinessScalar.toFixed(3)}</span>, reset <span class="debug-strong">${liveInteraction.signalProvider.closurePacingWatch.defenderResetQualityScalar.toFixed(3)}</span>, order <span class="debug-strong">${liveInteraction.signalProvider.closurePacingWatch.progressionOrderScalar.toFixed(3)}</span></div>
-+        <div class="debug-muted">Pacing watch first-entry: rise <span class="debug-strong">${formatOptionalTime(liveInteraction.signalProvider.closurePacingWatch.firstEntrySecondsByState['rising-anti-stall'])}</span>, ready <span class="debug-strong">${formatOptionalTime(liveInteraction.signalProvider.closurePacingWatch.firstEntrySecondsByState['closure-readiness'])}</span>, accel <span class="debug-strong">${formatOptionalTime(liveInteraction.signalProvider.closurePacingWatch.firstEntrySecondsByState['accelerated-closure-window'])}</span>, reset <span class="debug-strong">${formatOptionalTime(liveInteraction.signalProvider.closurePacingWatch.firstEntrySecondsByState['defender-reset-window'])}</span></div>
-+        <div class="debug-muted">Pacing watch dwell/events: rise <span class="debug-strong">${liveInteraction.signalProvider.closurePacingWatch.cumulativeDwellSecondsByState['rising-anti-stall'].toFixed(1)}s</span>, ready <span class="debug-strong">${liveInteraction.signalProvider.closurePacingWatch.cumulativeDwellSecondsByState['closure-readiness'].toFixed(1)}s</span>, accel <span class="debug-strong">${liveInteraction.signalProvider.closurePacingWatch.cumulativeDwellSecondsByState['accelerated-closure-window'].toFixed(1)}s</span>, reset <span class="debug-strong">${liveInteraction.signalProvider.closurePacingWatch.cumulativeDwellSecondsByState['defender-reset-window'].toFixed(1)}s</span> | sticky A/C <span class="debug-strong">${liveInteraction.signalProvider.closurePacingWatch.stickyAntiStallEvents}/${liveInteraction.signalProvider.closurePacingWatch.stickyClosureWindowEvents}</span> | prolonged <span class="debug-strong">${liveInteraction.signalProvider.closurePacingWatch.prolongedReadinessEvents}</span> | premature reset <span class="debug-strong">${liveInteraction.signalProvider.closurePacingWatch.prematureResetEvents}</span></div>
-@@ -537,0 +542,29 @@ const formatClosurePacingState = (
+@@ -1,6 +1,7 @@
+ import * as pc from 'playcanvas';
+ import { layoutConfig, type RouteDef, type ValidationBand, type ZoneCategory } from '../config/layout';
+ import { type RouteProbeResult, colorFromHex, type SceneRegistry } from '../scene/grayboxFactory';
++import { type HeadlessCombatRuntimeSnapshot } from '../gameplay/headlessCombatRuntime';
+ import {
+   type LiveInteractionCalibrationOperatorControls,
+   type LiveInteractionDebugState
+@@ -15,6 +16,7 @@
+   tacticalModeLabel: string;
+   activeProbeRouteId: string | null;
+   probeElapsedSeconds: number | null;
++  headlessCombat?: HeadlessCombatRuntimeSnapshot;
+   liveInteraction?: LiveInteractionDebugState;
+   liveInteractionControls?: LiveInteractionCalibrationOperatorControls;
+   tempo?: TempoHarnessDebugState;
+@@ -121,6 +123,7 @@
+ 
+   const controls = [
+     '`WASD` move the proxy',
++    '`F` / `Space` queue the authoritative basic cast on the nearby dummy target',
+     '`C` toggle tactical / follow camera',
+     '`V` switch tactical angle / top-down',
+     '`[` / `]` cycle route probes',
+@@ -348,6 +351,15 @@
+         <div class="debug-muted">Next stage in: <span class="debug-strong">${wavePressure.secondsToNextStage.toFixed(1)}s</span></div>
+       `
+       : '<div class="debug-muted">Wave-pressure simulation unavailable.</div>';
++    const headlessCombat = state?.headlessCombat;
++    const headlessCombatMarkup = headlessCombat
++      ? `
++        <div class="debug-muted">Hero: <span class="debug-strong">${formatCombatHitPoints(headlessCombat.player.currentHp, headlessCombat.player.maxHp)}</span> | alive <span class="debug-strong">${headlessCombat.player.alive ? 'Yes' : 'No'}</span> | cd <span class="debug-strong">${headlessCombat.player.basicAbilityCooldownRemaining.toFixed(2)}s</span></div>
++        <div class="debug-muted">Target: <span class="debug-strong">${formatCombatHitPoints(headlessCombat.target.currentHp, headlessCombat.target.maxHp)}</span> | alive <span class="debug-strong">${headlessCombat.target.alive ? 'Yes' : 'No'}</span> | pos <span class="debug-strong">${headlessCombat.target.position.x.toFixed(1)}, ${headlessCombat.target.position.z.toFixed(1)}</span></div>
++        <div class="debug-muted">Last cast: <span class="debug-strong">${formatHeadlessCombatCastResult(headlessCombat.lastResolvedCast)}</span></div>
++        <div class="debug-muted">Failure reason: <span class="debug-strong">${formatHeadlessCombatFailureReason(headlessCombat.lastLegalityFailureReason)}</span></div>
++      `
++      : '<div class="debug-muted">Headless combat slice unavailable.</div>';
+     const liveInteraction = state?.liveInteraction;
+     const operatorControlsEnabled = Boolean(liveInteractionControls && liveInteraction);
+     Object.values(operatorButtons).forEach((button) => {
+@@ -483,6 +495,10 @@
+         ${resultMarkup}
+       </section>
+       <section>
++        <div class="debug-muted">Headless Combat Slice</div>
++        ${headlessCombatMarkup}
++      </section>
++      <section>
+         <div class="debug-muted">Wave Pressure Sim</div>
+         ${wavePressureMarkup}
+       </section>
+@@ -1335,6 +1351,36 @@
+               ? 'Rerun For Signal'
+               : 'Clear Frozen Review';
+ 
++const formatCombatHitPoints = (currentHp: number, maxHp: number): string =>
++  `${currentHp}/${maxHp}`;
 +
-+const formatClosurePacingHealthState = (
-+  state:
-+    | 'healthy-progression'
-+    | 'early-escalation'
-+    | 'late-escalation'
-+    | 'sticky-anti-stall'
-+    | 'sticky-closure-window'
-+    | 'premature-reset'
-+    | 'prolonged-readiness'
++const formatHeadlessCombatCastResult = (
++  result: HeadlessCombatRuntimeSnapshot['lastResolvedCast']
++): string => {
++  if (!result) {
++    return 'No cast yet';
++  }
++
++  if (result.success) {
++    return `Hit ${result.targetEntityId} for ${result.damageApplied} (${result.targetHpAfter ?? 0} HP left)`;
++  }
++
++  return `Rejected ${formatHeadlessCombatFailureReason(result.failureReason ?? 'none')}`;
++};
++
++const formatHeadlessCombatFailureReason = (
++  reason: HeadlessCombatRuntimeSnapshot['lastLegalityFailureReason']
 +): string =>
-+  state === 'healthy-progression'
-+    ? 'Healthy Progression'
-+    : state === 'early-escalation'
-+      ? 'Early Escalation'
-+      : state === 'late-escalation'
-+        ? 'Late Escalation'
-+        : state === 'sticky-anti-stall'
-+          ? 'Sticky Anti-Stall'
-+          : state === 'sticky-closure-window'
-+            ? 'Sticky Closure Window'
-+            : state === 'premature-reset'
-+              ? 'Premature Reset'
-+              : 'Prolonged Readiness';
++  reason === 'on-cooldown'
++    ? 'On Cooldown'
++    : reason === 'out-of-range'
++      ? 'Out Of Range'
++      : reason === 'dead-actor'
++        ? 'Dead Actor'
++        : reason === 'invalid-target'
++          ? 'Invalid Target'
++          : 'None';
 +
-+const formatOptionalTime = (seconds: number | null): string =>
-+  typeof seconds === 'number'
-+    ? `${seconds.toFixed(1)}s`
-+    : 'n/a';
-
-diff --git a/src/gameplay/closurePacingWatch.ts b/src/gameplay/closurePacingWatch.ts
-new file mode 100644
+ const formatCalibrationBlockingFactors = (factors: string[]): string =>
+   factors.length > 0 ? factors.join(', ') : 'None';
+ 
 --- /dev/null
-+++ b/src/gameplay/closurePacingWatch.ts
-@@ -0,0 +1,527 @@
-+import { type ClosurePacingSnapshot, type ClosurePacingState } from './closurePacingInterpreter';
-+import { type LaneClosurePostureSnapshot } from './laneClosurePosture';
-+import { type StructurePressureTier } from './pressureCalibrationScaffold';
-+import { type StructureResolutionTierState } from './structureResolutionMemory';
-+
-+type TierStateMap = Record<StructurePressureTier, StructureResolutionTierState>;
-+type PacingStateTimingMap = Record<ClosurePacingState, number | null>;
-+type PacingStateValueMap = Record<ClosurePacingState, number>;
-+
-+export type ClosurePacingHealthState =
-+  | 'healthy-progression'
-+  | 'early-escalation'
-+  | 'late-escalation'
-+  | 'sticky-anti-stall'
-+  | 'sticky-closure-window'
-+  | 'premature-reset'
-+  | 'prolonged-readiness';
-+
-+export interface ClosurePacingWatchCalibration {
-+  pacingHealthScalar: number;
-+  escalationTimingScalar: number;
-+  closureStickinessScalar: number;
-+  defenderResetQualityScalar: number;
-+  progressionOrderScalar: number;
++++ b/src/combat/headlessCombatCore.ts
+@@ -0,0 +1,568 @@
++export interface CombatVector2 {
++  x: number;
++  z: number;
 +}
 +
-+export interface ClosurePacingWatchSnapshot {
-+  healthState: ClosurePacingHealthState;
-+  healthStateAgeSeconds: number;
-+  currentStateDwellSeconds: number;
-+  firstEntrySecondsByState: PacingStateTimingMap;
-+  cumulativeDwellSecondsByState: PacingStateValueMap;
-+  entryCountByState: PacingStateValueMap;
-+  exitCountByState: PacingStateValueMap;
-+  stickyAntiStallEvents: number;
-+  stickyClosureWindowEvents: number;
-+  prolongedReadinessEvents: number;
-+  prematureResetEvents: number;
-+  legitimateResetWindows: number;
-+  orderFlags: {
-+    risingSeenBeforeReadiness: boolean;
-+    readinessSeenBeforeClosureWindow: boolean;
-+    resetSeenAfterReadiness: boolean;
-+  };
-+  calibration: ClosurePacingWatchCalibration;
++export type CombatTeam = 'blue' | 'red';
++
++export type CombatAbilityId = 'hero-basic-shot';
++
++export type CombatCastFailureReason =
++  | 'on-cooldown'
++  | 'out-of-range'
++  | 'dead-actor'
++  | 'invalid-target';
++
++export interface CombatMovementIntent {
++  kind: 'movement';
++  direction: CombatVector2;
 +}
 +
-+export interface ClosurePacingWatchInput {
++export interface CombatCastAbilityIntent {
++  kind: 'cast-ability';
++  abilityId: CombatAbilityId;
++  targetEntityId: string;
++}
++
++export interface CombatAbilityDefinition {
++  id: CombatAbilityId;
++  cooldownSeconds: number;
++  castRange: number;
++  damage: number;
++}
++
++export interface HeadlessHeroCombatState {
++  id: string;
++  team: CombatTeam;
++  position: CombatVector2;
++  facing: CombatVector2;
++  moveSpeed: number;
++  bodyRadius: number;
++  currentHp: number;
++  maxHp: number;
++  alive: boolean;
++  basicAbilityCooldownRemaining: number;
++}
++
++export interface HeadlessCombatEntityConfig {
++  id: string;
++  team: CombatTeam;
++  position: CombatVector2;
++  facing?: CombatVector2;
++  moveSpeed: number;
++  bodyRadius: number;
++  maxHp: number;
++  currentHp?: number;
++}
++
++export interface HeadlessCombatWalkArea {
++  xMin: number;
++  xMax: number;
++  zMin: number;
++  zMax: number;
++}
++
++export interface HeadlessCombatBlocker {
++  xMin: number;
++  xMax: number;
++  zMin: number;
++  zMax: number;
++}
++
++export interface HeadlessCombatArenaGeometry {
++  walkAreas: HeadlessCombatWalkArea[];
++  blockers: HeadlessCombatBlocker[];
++  edgeBuffer: number;
++}
++
++export interface CombatCastResolutionSnapshot {
++  sequence: number;
++  actorId: string;
++  abilityId: CombatAbilityId;
++  targetEntityId: string;
++  success: boolean;
++  failureReason: CombatCastFailureReason | null;
++  damageApplied: number;
++  targetHpAfter: number | null;
++  targetAliveAfter: boolean | null;
++  cooldownRemaining: number;
++}
++
++export interface HeadlessCombatSimulationSnapshot {
 +  elapsedSeconds: number;
-+  cycleSeconds: number;
-+  pacing: ClosurePacingSnapshot;
-+  laneClosure: LaneClosurePostureSnapshot;
-+  resolutionByTier: TierStateMap;
++  fixedStepSeconds: number;
++  entities: Record<string, HeadlessHeroCombatState>;
++  lastResolvedCast: CombatCastResolutionSnapshot | null;
++  lastLegalityFailureReason: CombatCastFailureReason | 'none';
 +}
 +
-+export interface ClosurePacingWatch {
-+  update(dt: number, input: ClosurePacingWatchInput): void;
-+  getSnapshot(): ClosurePacingWatchSnapshot;
++export interface HeadlessCombatSimulationConfig {
++  fixedStepSeconds?: number;
++  ability: CombatAbilityDefinition;
++  arena: HeadlessCombatArenaGeometry;
++  entities: HeadlessCombatEntityConfig[];
++}
++
++export interface HeadlessCombatSimulation {
++  submitMovementIntent(actorId: string, intent: CombatMovementIntent): void;
++  submitCastIntent(actorId: string, intent: CombatCastAbilityIntent): void;
++  forceSetEntityPosition(actorId: string, position: CombatVector2): void;
++  update(dt: number): void;
++  getSnapshot(): HeadlessCombatSimulationSnapshot;
 +}
 +
 +interface RuntimeState {
-+  currentPacingState: ClosurePacingState;
-+  currentStateDwellSeconds: number;
-+  firstEntrySecondsByState: PacingStateTimingMap;
-+  cumulativeDwellSecondsByState: PacingStateValueMap;
-+  entryCountByState: PacingStateValueMap;
-+  exitCountByState: PacingStateValueMap;
-+  stickyAntiStallEvents: number;
-+  stickyClosureWindowEvents: number;
-+  prolongedReadinessEvents: number;
-+  prematureResetEvents: number;
-+  legitimateResetWindows: number;
-+  orderFlags: ClosurePacingWatchSnapshot['orderFlags'];
-+  healthState: ClosurePacingHealthState;
-+  healthStateAgeSeconds: number;
-+  currentStateStickyFlagged: boolean;
-+  currentStateProlongedFlagged: boolean;
-+  calibration: ClosurePacingWatchCalibration;
++  elapsedSeconds: number;
++  accumulatorSeconds: number;
++  fixedStepSeconds: number;
++  ability: CombatAbilityDefinition;
++  arena: HeadlessCombatArenaGeometry;
++  entities: Record<string, HeadlessHeroCombatState>;
++  movementIntentsByActorId: Record<string, CombatMovementIntent>;
++  castQueue: Array<{
++    sequence: number;
++    actorId: string;
++    intent: CombatCastAbilityIntent;
++  }>;
++  nextCastSequence: number;
++  lastResolvedCast: CombatCastResolutionSnapshot | null;
 +}
 +
-+const pacingStates: ClosurePacingState[] = [
-+  'normal-pressure',
-+  'rising-anti-stall',
-+  'closure-readiness',
-+  'accelerated-closure-window',
-+  'defender-reset-window'
-+];
++const defaultFixedStepSeconds = 1 / 60;
 +
-+const scalarMin = 0.95;
-+const scalarMax = 1.08;
-+
-+export const createClosurePacingWatch = (): ClosurePacingWatch => {
++export const createHeadlessCombatSimulation = (
++  config: HeadlessCombatSimulationConfig
++): HeadlessCombatSimulation => {
 +  const state: RuntimeState = {
-+    currentPacingState: 'normal-pressure',
-+    currentStateDwellSeconds: 0,
-+    firstEntrySecondsByState: {
-+      'normal-pressure': 0,
-+      'rising-anti-stall': null,
-+      'closure-readiness': null,
-+      'accelerated-closure-window': null,
-+      'defender-reset-window': null
++    elapsedSeconds: 0,
++    accumulatorSeconds: 0,
++    fixedStepSeconds: config.fixedStepSeconds ?? defaultFixedStepSeconds,
++    ability: {
++      id: config.ability.id,
++      cooldownSeconds: config.ability.cooldownSeconds,
++      castRange: config.ability.castRange,
++      damage: config.ability.damage
 +    },
-+    cumulativeDwellSecondsByState: createStateValueMap(0),
-+    entryCountByState: {
-+      ...createStateValueMap(0),
-+      'normal-pressure': 1
-+    },
-+    exitCountByState: createStateValueMap(0),
-+    stickyAntiStallEvents: 0,
-+    stickyClosureWindowEvents: 0,
-+    prolongedReadinessEvents: 0,
-+    prematureResetEvents: 0,
-+    legitimateResetWindows: 0,
-+    orderFlags: {
-+      risingSeenBeforeReadiness: false,
-+      readinessSeenBeforeClosureWindow: false,
-+      resetSeenAfterReadiness: false
-+    },
-+    healthState: 'healthy-progression',
-+    healthStateAgeSeconds: 0,
-+    currentStateStickyFlagged: false,
-+    currentStateProlongedFlagged: false,
-+    calibration: {
-+      pacingHealthScalar: 1,
-+      escalationTimingScalar: 1,
-+      closureStickinessScalar: 1,
-+      defenderResetQualityScalar: 1,
-+      progressionOrderScalar: 1
-+    }
++    arena: cloneArena(config.arena),
++    entities: Object.fromEntries(
++      config.entities.map((entity) => [
++        entity.id,
++        createEntityState(entity)
++      ])
++    ),
++    movementIntentsByActorId: Object.fromEntries(
++      config.entities.map((entity) => [
++        entity.id,
++        {
++          kind: 'movement' as const,
++          direction: { x: 0, z: 0 }
++        }
++      ])
++    ),
++    castQueue: [],
++    nextCastSequence: 1,
++    lastResolvedCast: null
 +  };
 +
 +  return {
-+    update(dt, input) {
-+      const now = Math.max(0, input.elapsedSeconds);
-+      const currentPacingState = input.pacing.state;
++    submitMovementIntent(actorId, intent) {
++      if (!state.entities[actorId]) {
++        return;
++      }
 +
-+      if (currentPacingState !== state.currentPacingState) {
-+        state.exitCountByState[state.currentPacingState] += 1;
-+        state.currentPacingState = currentPacingState;
-+        state.currentStateDwellSeconds = 0;
-+        state.currentStateStickyFlagged = false;
-+        state.currentStateProlongedFlagged = false;
-+        state.entryCountByState[currentPacingState] += 1;
++      state.movementIntentsByActorId[actorId] = {
++        kind: 'movement',
++        direction: normalizeVector(intent.direction)
++      };
++    },
++    submitCastIntent(actorId, intent) {
++      if (!state.entities[actorId]) {
++        return;
++      }
 +
-+        if (state.firstEntrySecondsByState[currentPacingState] === null) {
-+          state.firstEntrySecondsByState[currentPacingState] = now;
++      state.castQueue.push({
++        sequence: state.nextCastSequence,
++        actorId,
++        intent: {
++          kind: 'cast-ability',
++          abilityId: intent.abilityId,
++          targetEntityId: intent.targetEntityId
 +        }
-+
-+        applyTransitionFlags(state, input, now);
++      });
++      state.nextCastSequence += 1;
++    },
++    forceSetEntityPosition(actorId, position) {
++      const entity = state.entities[actorId];
++      if (!entity) {
++        return;
 +      }
 +
-+      const step = Math.max(0, dt);
-+      state.currentStateDwellSeconds += step;
-+      state.cumulativeDwellSecondsByState[state.currentPacingState] += step;
-+
-+      trackStickyAndProlongedBehavior(state, input);
-+
-+      const healthState = deriveHealthState(state, input);
-+      if (healthState === state.healthState) {
-+        state.healthStateAgeSeconds += step;
-+      } else {
-+        state.healthState = healthState;
-+        state.healthStateAgeSeconds = 0;
++      entity.position = cloneVector(position);
++    },
++    update(dt) {
++      if (dt <= 0) {
++        return;
 +      }
 +
-+      state.calibration = deriveCalibration(state, input);
++      state.accumulatorSeconds += dt;
++      while (state.accumulatorSeconds >= state.fixedStepSeconds) {
++        stepFixedState(state, state.fixedStepSeconds);
++        state.accumulatorSeconds -= state.fixedStepSeconds;
++      }
 +    },
 +    getSnapshot() {
++      return cloneSnapshot(state);
++    }
++  };
++};
++
++export const canOccupyCombatPosition = (
++  arena: HeadlessCombatArenaGeometry,
++  position: CombatVector2,
++  bodyRadius: number
++): boolean => {
++  const clearance = bodyRadius + arena.edgeBuffer;
++  const onWalkableSurface = arena.walkAreas.some((area) =>
++    position.x >= area.xMin + clearance &&
++    position.x <= area.xMax - clearance &&
++    position.z >= area.zMin + clearance &&
++    position.z <= area.zMax - clearance
++  );
++
++  if (!onWalkableSurface) {
++    return false;
++  }
++
++  return !arena.blockers.some((blocker) => {
++    const nearestX = clamp(position.x, blocker.xMin, blocker.xMax);
++    const nearestZ = clamp(position.z, blocker.zMin, blocker.zMax);
++    const distanceSquared =
++      (position.x - nearestX) ** 2 + (position.z - nearestZ) ** 2;
++    return distanceSquared < bodyRadius ** 2;
++  });
++};
++
++export const resolveNearestWalkableCombatPosition = (
++  arena: HeadlessCombatArenaGeometry,
++  preferredPosition: CombatVector2,
++  bodyRadius: number
++): CombatVector2 => {
++  if (canOccupyCombatPosition(arena, preferredPosition, bodyRadius)) {
++    return cloneVector(preferredPosition);
++  }
++
++  const searchStep = Math.max(0.4, bodyRadius * 0.5);
++  const directions: CombatVector2[] = [
++    { x: -1, z: 0 },
++    { x: 1, z: 0 },
++    { x: 0, z: -1 },
++    { x: 0, z: 1 },
++    { x: -1, z: -1 },
++    { x: -1, z: 1 },
++    { x: 1, z: -1 },
++    { x: 1, z: 1 }
++  ];
++
++  for (let ring = 1; ring <= 16; ring += 1) {
++    const offsetDistance = ring * searchStep;
++    for (const direction of directions) {
++      const normalizedDirection = normalizeVector(direction);
++      const candidate = {
++        x: preferredPosition.x + normalizedDirection.x * offsetDistance,
++        z: preferredPosition.z + normalizedDirection.z * offsetDistance
++      };
++
++      if (canOccupyCombatPosition(arena, candidate, bodyRadius)) {
++        return candidate;
++      }
++    }
++  }
++
++  return cloneVector(preferredPosition);
++};
++
++const stepFixedState = (state: RuntimeState, dt: number): void => {
++  state.elapsedSeconds += dt;
++
++  const sortedEntityIds = Object.keys(state.entities).sort();
++  for (const entityId of sortedEntityIds) {
++    const entity = state.entities[entityId];
++    if (!entity.alive) {
++      entity.basicAbilityCooldownRemaining = 0;
++      continue;
++    }
++
++    entity.basicAbilityCooldownRemaining = Math.max(
++      0,
++      entity.basicAbilityCooldownRemaining - dt
++    );
++  }
++
++  for (const entityId of sortedEntityIds) {
++    const entity = state.entities[entityId];
++    const movementIntent = state.movementIntentsByActorId[entityId];
++    if (!movementIntent) {
++      continue;
++    }
++
++    applyMovementIntent(state.arena, entity, movementIntent, dt);
++  }
++
++  if (state.castQueue.length === 0) {
++    return;
++  }
++
++  const queuedCasts = [...state.castQueue].sort(
++    (left, right) => left.sequence - right.sequence
++  );
++  state.castQueue = [];
++
++  for (const queuedCast of queuedCasts) {
++    state.lastResolvedCast = resolveCastIntent(
++      state,
++      queuedCast.sequence,
++      queuedCast.actorId,
++      queuedCast.intent
++    );
++  }
++};
++
++const applyMovementIntent = (
++  arena: HeadlessCombatArenaGeometry,
++  entity: HeadlessHeroCombatState,
++  intent: CombatMovementIntent,
++  dt: number
++): void => {
++  if (!entity.alive) {
++    return;
++  }
++
++  const direction = normalizeVector(intent.direction);
++  if (direction.x === 0 && direction.z === 0) {
++    return;
++  }
++
++  const frameDistance = entity.moveSpeed * dt;
++  const candidateX = {
++    x: entity.position.x + direction.x * frameDistance,
++    z: entity.position.z
++  };
++  const candidateZ = {
++    x: entity.position.x,
++    z: entity.position.z + direction.z * frameDistance
++  };
++
++  if (canOccupyCombatPosition(arena, candidateX, entity.bodyRadius)) {
++    entity.position.x = candidateX.x;
++  }
++
++  if (canOccupyCombatPosition(arena, candidateZ, entity.bodyRadius)) {
++    entity.position.z = candidateZ.z;
++  }
++
++  entity.facing = direction;
++};
++
++const resolveCastIntent = (
++  state: RuntimeState,
++  sequence: number,
++  actorId: string,
++  intent: CombatCastAbilityIntent
++): CombatCastResolutionSnapshot => {
++  const actor = state.entities[actorId];
++  if (!actor || !actor.alive) {
++    return createFailedCastResolution(
++      sequence,
++      actorId,
++      intent,
++      'dead-actor',
++      actor?.basicAbilityCooldownRemaining ?? 0
++    );
++  }
++
++  const target = state.entities[intent.targetEntityId];
++  if (!target || !target.alive || target.team === actor.team) {
++    return createFailedCastResolution(
++      sequence,
++      actorId,
++      intent,
++      'invalid-target',
++      actor.basicAbilityCooldownRemaining
++    );
++  }
++
++  if (intent.abilityId !== state.ability.id) {
++    return createFailedCastResolution(
++      sequence,
++      actorId,
++      intent,
++      'invalid-target',
++      actor.basicAbilityCooldownRemaining
++    );
++  }
++
++  if (actor.basicAbilityCooldownRemaining > 0) {
++    return createFailedCastResolution(
++      sequence,
++      actorId,
++      intent,
++      'on-cooldown',
++      actor.basicAbilityCooldownRemaining
++    );
++  }
++
++  const targetDistance = Math.hypot(
++    target.position.x - actor.position.x,
++    target.position.z - actor.position.z
++  );
++  const maxAllowedDistance =
++    state.ability.castRange + actor.bodyRadius + target.bodyRadius;
++
++  if (targetDistance > maxAllowedDistance) {
++    return createFailedCastResolution(
++      sequence,
++      actorId,
++      intent,
++      'out-of-range',
++      actor.basicAbilityCooldownRemaining
++    );
++  }
++
++  actor.basicAbilityCooldownRemaining = state.ability.cooldownSeconds;
++  actor.facing = normalizeVector({
++    x: target.position.x - actor.position.x,
++    z: target.position.z - actor.position.z
++  });
++
++  target.currentHp = Math.max(0, target.currentHp - state.ability.damage);
++  target.alive = target.currentHp > 0;
++
++  return {
++    sequence,
++    actorId,
++    abilityId: intent.abilityId,
++    targetEntityId: intent.targetEntityId,
++    success: true,
++    failureReason: null,
++    damageApplied: state.ability.damage,
++    targetHpAfter: target.currentHp,
++    targetAliveAfter: target.alive,
++    cooldownRemaining: actor.basicAbilityCooldownRemaining
++  };
++};
++
++const createEntityState = (
++  entity: HeadlessCombatEntityConfig
++): HeadlessHeroCombatState => {
++  const currentHp = clamp(
++    entity.currentHp ?? entity.maxHp,
++    0,
++    entity.maxHp
++  );
++
++  return {
++    id: entity.id,
++    team: entity.team,
++    position: cloneVector(entity.position),
++    facing: normalizeVector(entity.facing ?? { x: 0, z: 1 }),
++    moveSpeed: entity.moveSpeed,
++    bodyRadius: entity.bodyRadius,
++    currentHp,
++    maxHp: entity.maxHp,
++    alive: currentHp > 0,
++    basicAbilityCooldownRemaining: 0
++  };
++};
++
++const createFailedCastResolution = (
++  sequence: number,
++  actorId: string,
++  intent: CombatCastAbilityIntent,
++  failureReason: CombatCastFailureReason,
++  cooldownRemaining: number
++): CombatCastResolutionSnapshot => ({
++  sequence,
++  actorId,
++  abilityId: intent.abilityId,
++  targetEntityId: intent.targetEntityId,
++  success: false,
++  failureReason,
++  damageApplied: 0,
++  targetHpAfter: null,
++  targetAliveAfter: null,
++  cooldownRemaining
++});
++
++const cloneSnapshot = (
++  state: RuntimeState
++): HeadlessCombatSimulationSnapshot => ({
++  elapsedSeconds: state.elapsedSeconds,
++  fixedStepSeconds: state.fixedStepSeconds,
++  entities: Object.fromEntries(
++    Object.entries(state.entities).map(([entityId, entity]) => [
++      entityId,
++      cloneEntityState(entity)
++    ])
++  ),
++  lastResolvedCast: state.lastResolvedCast
++    ? {
++        sequence: state.lastResolvedCast.sequence,
++        actorId: state.lastResolvedCast.actorId,
++        abilityId: state.lastResolvedCast.abilityId,
++        targetEntityId: state.lastResolvedCast.targetEntityId,
++        success: state.lastResolvedCast.success,
++        failureReason: state.lastResolvedCast.failureReason,
++        damageApplied: state.lastResolvedCast.damageApplied,
++        targetHpAfter: state.lastResolvedCast.targetHpAfter,
++        targetAliveAfter: state.lastResolvedCast.targetAliveAfter,
++        cooldownRemaining: state.lastResolvedCast.cooldownRemaining
++      }
++    : null,
++  lastLegalityFailureReason:
++    state.lastResolvedCast && !state.lastResolvedCast.success
++      ? state.lastResolvedCast.failureReason ?? 'none'
++      : 'none'
++});
++
++const cloneEntityState = (
++  entity: HeadlessHeroCombatState
++): HeadlessHeroCombatState => ({
++  id: entity.id,
++  team: entity.team,
++  position: cloneVector(entity.position),
++  facing: cloneVector(entity.facing),
++  moveSpeed: entity.moveSpeed,
++  bodyRadius: entity.bodyRadius,
++  currentHp: entity.currentHp,
++  maxHp: entity.maxHp,
++  alive: entity.alive,
++  basicAbilityCooldownRemaining: entity.basicAbilityCooldownRemaining
++});
++
++const cloneArena = (
++  arena: HeadlessCombatArenaGeometry
++): HeadlessCombatArenaGeometry => ({
++  walkAreas: arena.walkAreas.map((area) => ({ ...area })),
++  blockers: arena.blockers.map((blocker) => ({ ...blocker })),
++  edgeBuffer: arena.edgeBuffer
++});
++
++const cloneVector = (vector: CombatVector2): CombatVector2 => ({
++  x: vector.x,
++  z: vector.z
++});
++
++const normalizeVector = (vector: CombatVector2): CombatVector2 => {
++  const length = Math.hypot(vector.x, vector.z);
++  if (length <= 0.0001) {
++    return { x: 0, z: 0 };
++  }
++
++  return {
++    x: vector.x / length,
++    z: vector.z / length
++  };
++};
++
++const clamp = (value: number, min: number, max: number): number =>
++  Math.max(min, Math.min(max, value));
+--- /dev/null
++++ b/src/gameplay/headlessCombatRuntime.ts
+@@ -0,0 +1,217 @@
++import { layoutConfig } from '../config/layout';
++import {
++  canOccupyCombatPosition,
++  createHeadlessCombatSimulation,
++  resolveNearestWalkableCombatPosition,
++  type CombatAbilityId,
++  type CombatCastFailureReason,
++  type CombatCastResolutionSnapshot,
++  type CombatVector2,
++  type HeadlessCombatArenaGeometry,
++  type HeadlessCombatBlocker,
++  type HeadlessHeroCombatState,
++  type HeadlessCombatWalkArea
++} from '../combat/headlessCombatCore';
++
++export interface HeadlessCombatRuntimeEntitySnapshot {
++  id: string;
++  team: 'blue' | 'red';
++  position: CombatVector2;
++  facing: CombatVector2;
++  moveSpeed: number;
++  bodyRadius: number;
++  currentHp: number;
++  maxHp: number;
++  alive: boolean;
++  basicAbilityCooldownRemaining: number;
++}
++
++export interface HeadlessCombatRuntimeSnapshot {
++  elapsedSeconds: number;
++  fixedStepSeconds: number;
++  abilityId: CombatAbilityId;
++  player: HeadlessCombatRuntimeEntitySnapshot;
++  target: HeadlessCombatRuntimeEntitySnapshot;
++  lastResolvedCast: CombatCastResolutionSnapshot | null;
++  lastLegalityFailureReason: CombatCastFailureReason | 'none';
++}
++
++export interface HeadlessCombatRuntime {
++  update(dt: number): void;
++  submitPlayerMovementIntent(direction: CombatVector2): void;
++  requestPlayerBasicCast(): void;
++  teleportPlayer(position: CombatVector2): void;
++  getPlayerPosition(): CombatVector2;
++  getSnapshot(): HeadlessCombatRuntimeSnapshot;
++}
++
++const playerHeroId = 'hero-blue-authority';
++const targetDummyId = 'hero-red-dummy';
++const basicAbility = {
++  id: 'hero-basic-shot' as const,
++  cooldownSeconds: 1.5,
++  castRange: 8.25,
++  damage: 34
++};
++
++export const createHeadlessCombatRuntime = (): HeadlessCombatRuntime => {
++  const arena = createArenaFromLayout();
++  const playerStart = resolveNearestWalkableCombatPosition(
++    arena,
++    {
++      x: layoutConfig.nodes.midline.position.x,
++      z: layoutConfig.nodes.midline.position.y
++    },
++    layoutConfig.player.radius
++  );
++  const targetStart = resolveNearestWalkableCombatPosition(
++    arena,
++    {
++      x: layoutConfig.nodes.midline.position.x + 7.5,
++      z: layoutConfig.nodes.midline.position.y
++    },
++    layoutConfig.player.radius
++  );
++  const simulation = createHeadlessCombatSimulation({
++    ability: basicAbility,
++    arena,
++    entities: [
++      {
++        id: playerHeroId,
++        team: 'blue',
++        position: playerStart,
++        facing: { x: 1, z: 0 },
++        moveSpeed: layoutConfig.player.moveSpeed,
++        bodyRadius: layoutConfig.player.radius,
++        maxHp: 120
++      },
++      {
++        id: targetDummyId,
++        team: 'red',
++        position: targetStart,
++        facing: { x: -1, z: 0 },
++        moveSpeed: 0,
++        bodyRadius: layoutConfig.player.radius,
++        maxHp: 102
++      }
++    ]
++  });
++
++  return {
++    update(dt) {
++      simulation.update(dt);
++    },
++    submitPlayerMovementIntent(direction) {
++      simulation.submitMovementIntent(playerHeroId, {
++        kind: 'movement',
++        direction
++      });
++    },
++    requestPlayerBasicCast() {
++      simulation.submitCastIntent(playerHeroId, {
++        kind: 'cast-ability',
++        abilityId: basicAbility.id,
++        targetEntityId: targetDummyId
++      });
++    },
++    teleportPlayer(position) {
++      const safePosition = canOccupyCombatPosition(
++        arena,
++        position,
++        layoutConfig.player.radius
++      )
++        ? position
++        : resolveNearestWalkableCombatPosition(
++            arena,
++            position,
++            layoutConfig.player.radius
++          );
++
++      simulation.forceSetEntityPosition(playerHeroId, safePosition);
++      simulation.submitMovementIntent(playerHeroId, {
++        kind: 'movement',
++        direction: { x: 0, z: 0 }
++      });
++    },
++    getPlayerPosition() {
++      return cloneVector(getSnapshotEntity(simulation.getSnapshot(), playerHeroId).position);
++    },
++    getSnapshot() {
++      const simulationSnapshot = simulation.getSnapshot();
 +      return {
-+        healthState: state.healthState,
-+        healthStateAgeSeconds: state.healthStateAgeSeconds,
-+        currentStateDwellSeconds: state.currentStateDwellSeconds,
-+        firstEntrySecondsByState: { ...state.firstEntrySecondsByState },
-+        cumulativeDwellSecondsByState: { ...state.cumulativeDwellSecondsByState },
-+        entryCountByState: { ...state.entryCountByState },
-+        exitCountByState: { ...state.exitCountByState },
-+        stickyAntiStallEvents: state.stickyAntiStallEvents,
-+        stickyClosureWindowEvents: state.stickyClosureWindowEvents,
-+        prolongedReadinessEvents: state.prolongedReadinessEvents,
-+        prematureResetEvents: state.prematureResetEvents,
-+        legitimateResetWindows: state.legitimateResetWindows,
-+        orderFlags: {
-+          ...state.orderFlags
-+        },
-+        calibration: {
-+          ...state.calibration
-+        }
++        elapsedSeconds: simulationSnapshot.elapsedSeconds,
++        fixedStepSeconds: simulationSnapshot.fixedStepSeconds,
++        abilityId: basicAbility.id,
++        player: toRuntimeEntitySnapshot(
++          getSnapshotEntity(simulationSnapshot, playerHeroId)
++        ),
++        target: toRuntimeEntitySnapshot(
++          getSnapshotEntity(simulationSnapshot, targetDummyId)
++        ),
++        lastResolvedCast: simulationSnapshot.lastResolvedCast
++          ? { ...simulationSnapshot.lastResolvedCast }
++          : null,
++        lastLegalityFailureReason:
++          simulationSnapshot.lastLegalityFailureReason
 +      };
 +    }
 +  };
 +};
 +
-+const applyTransitionFlags = (
-+  state: RuntimeState,
-+  input: ClosurePacingWatchInput,
-+  now: number
-+): void => {
-+  const current = state.currentPacingState;
-+  const firstRising = state.firstEntrySecondsByState['rising-anti-stall'];
-+  const firstReadiness = state.firstEntrySecondsByState['closure-readiness'];
-+
-+  if (current === 'closure-readiness') {
-+    state.orderFlags.risingSeenBeforeReadiness =
-+      firstRising !== null && firstRising <= now;
-+  }
-+
-+  if (current === 'accelerated-closure-window') {
-+    state.orderFlags.readinessSeenBeforeClosureWindow =
-+      firstReadiness !== null && firstReadiness <= now;
-+  }
-+
-+  if (current === 'defender-reset-window') {
-+    const timeSinceReadiness = firstReadiness === null ? null : now - firstReadiness;
-+    const legitimateReset =
-+      firstReadiness !== null &&
-+      timeSinceReadiness !== null &&
-+      timeSinceReadiness >= Math.max(1.5, input.cycleSeconds * 0.08) &&
-+      input.laneClosure.defenderRecoveryLevel >= 0.42;
-+
-+    state.orderFlags.resetSeenAfterReadiness = firstReadiness !== null && firstReadiness <= now;
-+
-+    if (legitimateReset) {
-+      state.legitimateResetWindows += 1;
-+    } else {
-+      state.prematureResetEvents += 1;
-+    }
-+  }
-+};
-+
-+const trackStickyAndProlongedBehavior = (
-+  state: RuntimeState,
-+  input: ClosurePacingWatchInput
-+): void => {
-+  const cycle = Math.max(6, input.cycleSeconds);
-+  const stickyAntiThreshold = cycle * 1.25;
-+  const stickyClosureThreshold = cycle * 0.95;
-+  const prolongedReadinessThreshold = cycle * 1.45;
-+
-+  if (
-+    state.currentPacingState === 'rising-anti-stall' &&
-+    state.currentStateDwellSeconds >= stickyAntiThreshold &&
-+    !state.currentStateStickyFlagged &&
-+    state.firstEntrySecondsByState['closure-readiness'] === null
-+  ) {
-+    state.stickyAntiStallEvents += 1;
-+    state.currentStateStickyFlagged = true;
-+  }
-+
-+  if (
-+    state.currentPacingState === 'accelerated-closure-window' &&
-+    state.currentStateDwellSeconds >= stickyClosureThreshold &&
-+    !state.currentStateStickyFlagged
-+  ) {
-+    state.stickyClosureWindowEvents += 1;
-+    state.currentStateStickyFlagged = true;
-+  }
-+
-+  if (
-+    state.currentPacingState === 'closure-readiness' &&
-+    state.currentStateDwellSeconds >= prolongedReadinessThreshold &&
-+    !state.currentStateProlongedFlagged &&
-+    state.firstEntrySecondsByState['accelerated-closure-window'] === null
-+  ) {
-+    state.prolongedReadinessEvents += 1;
-+    state.currentStateProlongedFlagged = true;
-+  }
-+};
-+
-+const deriveHealthState = (
-+  state: RuntimeState,
-+  input: ClosurePacingWatchInput
-+): ClosurePacingHealthState => {
-+  if (state.prematureResetEvents > 0) {
-+    return 'premature-reset';
-+  }
-+
-+  if (
-+    state.stickyClosureWindowEvents > 0 ||
-+    (state.currentPacingState === 'accelerated-closure-window' &&
-+      state.currentStateDwellSeconds >= input.cycleSeconds * 0.95)
-+  ) {
-+    return 'sticky-closure-window';
-+  }
-+
-+  if (
-+    state.stickyAntiStallEvents > 0 ||
-+    (state.currentPacingState === 'rising-anti-stall' &&
-+      state.currentStateDwellSeconds >= input.cycleSeconds * 1.25 &&
-+      state.firstEntrySecondsByState['closure-readiness'] === null)
-+  ) {
-+    return 'sticky-anti-stall';
-+  }
-+
-+  if (state.prolongedReadinessEvents > 0) {
-+    return 'prolonged-readiness';
-+  }
-+
-+  if (isEarlyEscalation(state, input)) {
-+    return 'early-escalation';
-+  }
-+
-+  if (isLateEscalation(state, input)) {
-+    return 'late-escalation';
-+  }
-+
-+  return 'healthy-progression';
-+};
-+
-+const isEarlyEscalation = (
-+  state: RuntimeState,
-+  input: ClosurePacingWatchInput
-+): boolean => {
-+  const cycle = Math.max(6, input.cycleSeconds);
-+  const firstRising = state.firstEntrySecondsByState['rising-anti-stall'];
-+  const firstReadiness = state.firstEntrySecondsByState['closure-readiness'];
-+  const firstClosureWindow = state.firstEntrySecondsByState['accelerated-closure-window'];
-+
-+  return (
-+    (firstRising !== null && firstRising < cycle * 0.22) ||
-+    (firstReadiness !== null && firstReadiness < cycle * 0.48) ||
-+    (firstClosureWindow !== null && firstClosureWindow < cycle * 0.8) ||
-+    (firstReadiness !== null && firstRising === null) ||
-+    (firstClosureWindow !== null && firstReadiness === null)
-+  );
-+};
-+
-+const isLateEscalation = (
-+  state: RuntimeState,
-+  input: ClosurePacingWatchInput
-+): boolean => {
-+  const cycle = Math.max(6, input.cycleSeconds);
-+  const elapsed = input.elapsedSeconds;
-+  const firstRising = state.firstEntrySecondsByState['rising-anti-stall'];
-+  const firstReadiness = state.firstEntrySecondsByState['closure-readiness'];
-+  const firstClosureWindow = state.firstEntrySecondsByState['accelerated-closure-window'];
-+
-+  return (
-+    (firstRising !== null && firstRising > cycle * 2.2) ||
-+    (firstReadiness !== null && firstReadiness > cycle * 3.1) ||
-+    (firstClosureWindow !== null && firstClosureWindow > cycle * 4.2) ||
-+    (firstRising === null && elapsed > cycle * 2.45) ||
-+    (firstReadiness === null && elapsed > cycle * 3.45)
-+  );
-+};
-+
-+const deriveCalibration = (
-+  state: RuntimeState,
-+  input: ClosurePacingWatchInput
-+): ClosurePacingWatchCalibration => {
-+  const escalationTimingQuality = deriveEscalationTimingQuality(state, input);
-+  const closureStickinessQuality = deriveStickinessQuality(state, input);
-+  const defenderResetQuality = deriveDefenderResetQuality(state);
-+  const progressionOrderQuality = deriveProgressionOrderQuality(state);
-+  const pacingHealthQuality = clamp(
-+    escalationTimingQuality * 0.28 +
-+      closureStickinessQuality * 0.27 +
-+      defenderResetQuality * 0.2 +
-+      progressionOrderQuality * 0.25,
-+    0,
-+    1
-+  );
-+
-+  return {
-+    pacingHealthScalar: qualityToScalar(pacingHealthQuality),
-+    escalationTimingScalar: qualityToScalar(escalationTimingQuality),
-+    closureStickinessScalar: qualityToScalar(closureStickinessQuality),
-+    defenderResetQualityScalar: qualityToScalar(defenderResetQuality),
-+    progressionOrderScalar: qualityToScalar(progressionOrderQuality)
-+  };
-+};
-+
-+const deriveEscalationTimingQuality = (
-+  state: RuntimeState,
-+  input: ClosurePacingWatchInput
-+): number => {
-+  const cycle = Math.max(6, input.cycleSeconds);
-+  const elapsed = input.elapsedSeconds;
-+
-+  const risingScore = timingScore(
-+    state.firstEntrySecondsByState['rising-anti-stall'],
-+    cycle * 0.22,
-+    cycle * 2.2,
-+    elapsed,
-+    cycle * 2.6
-+  );
-+  const readinessScore = timingScore(
-+    state.firstEntrySecondsByState['closure-readiness'],
-+    cycle * 0.48,
-+    cycle * 3.1,
-+    elapsed,
-+    cycle * 3.6
-+  );
-+  const closureWindowScore = timingScore(
-+    state.firstEntrySecondsByState['accelerated-closure-window'],
-+    cycle * 0.8,
-+    cycle * 4.2,
-+    elapsed,
-+    cycle * 4.8
-+  );
-+
-+  return clamp(
-+    risingScore * 0.28 + readinessScore * 0.4 + closureWindowScore * 0.32,
-+    0,
-+    1
-+  );
-+};
-+
-+const deriveStickinessQuality = (
-+  state: RuntimeState,
-+  input: ClosurePacingWatchInput
-+): number => {
-+  const cycle = Math.max(6, input.cycleSeconds);
-+  const currentDwellPenalty =
-+    state.currentPacingState === 'rising-anti-stall'
-+      ? Math.max(0, (state.currentStateDwellSeconds - cycle * 1.25) / (cycle * 1.2))
-+      : state.currentPacingState === 'closure-readiness'
-+        ? Math.max(0, (state.currentStateDwellSeconds - cycle * 1.45) / (cycle * 1.35))
-+        : state.currentPacingState === 'accelerated-closure-window'
-+          ? Math.max(0, (state.currentStateDwellSeconds - cycle * 0.95) / (cycle * 0.9))
-+          : 0;
-+  const eventPenalty =
-+    state.stickyAntiStallEvents * 0.18 +
-+    state.stickyClosureWindowEvents * 0.22 +
-+    state.prolongedReadinessEvents * 0.16;
-+
-+  return clamp(1 - currentDwellPenalty * 0.28 - eventPenalty, 0, 1);
-+};
-+
-+const deriveDefenderResetQuality = (state: RuntimeState): number => {
-+  if (state.legitimateResetWindows === 0 && state.prematureResetEvents === 0) {
-+    return 0.78;
-+  }
-+
-+  return clamp(
-+    0.72 +
-+      state.legitimateResetWindows * 0.15 -
-+      state.prematureResetEvents * 0.22,
-+    0,
-+    1
-+  );
-+};
-+
-+const deriveProgressionOrderQuality = (state: RuntimeState): number => {
-+  let quality = 1;
-+
-+  if (
-+    state.firstEntrySecondsByState['closure-readiness'] !== null &&
-+    !state.orderFlags.risingSeenBeforeReadiness
-+  ) {
-+    quality -= 0.32;
-+  }
-+
-+  if (
-+    state.firstEntrySecondsByState['accelerated-closure-window'] !== null &&
-+    !state.orderFlags.readinessSeenBeforeClosureWindow
-+  ) {
-+    quality -= 0.34;
-+  }
-+
-+  if (
-+    state.firstEntrySecondsByState['defender-reset-window'] !== null &&
-+    !state.orderFlags.resetSeenAfterReadiness
-+  ) {
-+    quality -= 0.18;
-+  }
-+
-+  return clamp(quality, 0, 1);
-+};
-+
-+const timingScore = (
-+  firstEntrySeconds: number | null,
-+  minSeconds: number,
-+  maxSeconds: number,
-+  elapsedSeconds: number,
-+  overdueSeconds: number
-+): number => {
-+  if (firstEntrySeconds === null) {
-+    if (elapsedSeconds <= maxSeconds) {
-+      return 0.82;
-+    }
-+
-+    const overdueRatio = clamp(
-+      (elapsedSeconds - maxSeconds) / Math.max(1, overdueSeconds - maxSeconds),
-+      0,
-+      1
-+    );
-+    return clamp(0.82 - overdueRatio * 0.47, 0.25, 0.82);
-+  }
-+
-+  if (firstEntrySeconds < minSeconds) {
-+    const earlyRatio = clamp((minSeconds - firstEntrySeconds) / Math.max(1, minSeconds), 0, 1);
-+    return clamp(1 - earlyRatio * 0.45, 0.35, 1);
-+  }
-+
-+  if (firstEntrySeconds > maxSeconds) {
-+    const lateRatio = clamp(
-+      (firstEntrySeconds - maxSeconds) / Math.max(1, overdueSeconds - maxSeconds),
-+      0,
-+      1
-+    );
-+    return clamp(1 - lateRatio * 0.5, 0.3, 1);
-+  }
-+
-+  return 1;
-+};
-+
-+const qualityToScalar = (quality: number): number =>
-+  clamp(scalarMin + clamp(quality, 0, 1) * (scalarMax - scalarMin), scalarMin, scalarMax);
-+
-+const createStateValueMap = (value: number): PacingStateValueMap => ({
-+  'normal-pressure': value,
-+  'rising-anti-stall': value,
-+  'closure-readiness': value,
-+  'accelerated-closure-window': value,
-+  'defender-reset-window': value
++const createArenaFromLayout = (): HeadlessCombatArenaGeometry => ({
++  walkAreas: layoutConfig.walkAreas.map<HeadlessCombatWalkArea>((area) => {
++    const halfWidth = area.size.width * 0.5;
++    const halfDepth = area.size.depth * 0.5;
++    return {
++      xMin: area.center.x - halfWidth,
++      xMax: area.center.x + halfWidth,
++      zMin: area.center.y - halfDepth,
++      zMax: area.center.y + halfDepth
++    };
++  }),
++  blockers: layoutConfig.blockers.map<HeadlessCombatBlocker>((blocker) => {
++    const halfWidth = blocker.size.width * 0.5;
++    const halfDepth = blocker.size.depth * 0.5;
++    return {
++      xMin: blocker.center.x - halfWidth,
++      xMax: blocker.center.x + halfWidth,
++      zMin: blocker.center.y - halfDepth,
++      zMax: blocker.center.y + halfDepth
++    };
++  }),
++  edgeBuffer: layoutConfig.player.edgeBuffer
 +});
 +
-+const clamp = (value: number, min: number, max: number): number =>
-+  Math.max(min, Math.min(max, value));
-+
-+const approach = (value: number, target: number, amount: number): number => {
-+  if (value < target) {
-+    return Math.min(target, value + amount);
++const getSnapshotEntity = (
++  snapshot: {
++    entities: Record<string, HeadlessHeroCombatState>;
++  },
++  entityId: string
++): HeadlessHeroCombatState => {
++  const entity = snapshot.entities[entityId];
++  if (!entity) {
++    throw new Error(`Missing headless combat entity "${entityId}".`);
 +  }
 +
-+  return Math.max(target, value - amount);
++  return entity;
 +};
++
++const toRuntimeEntitySnapshot = (
++  entity: HeadlessHeroCombatState
++): HeadlessCombatRuntimeEntitySnapshot => ({
++  id: entity.id,
++  team: entity.team,
++  position: cloneVector(entity.position),
++  facing: cloneVector(entity.facing),
++  moveSpeed: entity.moveSpeed,
++  bodyRadius: entity.bodyRadius,
++  currentHp: entity.currentHp,
++  maxHp: entity.maxHp,
++  alive: entity.alive,
++  basicAbilityCooldownRemaining: entity.basicAbilityCooldownRemaining
++});
++
++const cloneVector = (vector: CombatVector2): CombatVector2 => ({
++  x: vector.x,
++  z: vector.z
++});
