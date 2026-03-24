@@ -3,10 +3,15 @@
 > vite --host 127.0.0.1 --port 4179
 
 
-  [32m[1mVITE[22m v8.0.1[39m  [2mready in [0m[1m182[22m[2m[0m ms[22m
+  [32m[1mVITE[22m v8.0.1[39m  [2mready in [0m[1m127[22m[2m[0m ms[22m
 
   [32m➜[39m  [1mLocal[22m:   [36mhttp://127.0.0.1:[1m4179[22m/[39m
-[2m10:17:47[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2msrc/gameplay/sharedStructureConversionStep.ts[22m
-[2m10:18:43[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2msrc/gameplay/sharedStructureConversionStep.ts[22m
-
-C:\Users\bakht\Documents\Moba v0_01>
+[2m11:43:36[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2msrc/gameplay/headlessCombatRuntime.ts[22m
+[2m11:43:48[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2msrc/debug/debugBuilder.ts[22m
+[2m11:44:24[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2msrc/gameplay/headlessCombatRuntime.ts[22m
+[2m13:54:04[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2msrc/gameplay/prototypeLaneStateLoop.ts[22m
+[2m13:54:16[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2msrc/gameplay/livePrototypeSignalProvider.ts[22m
+[2m13:54:30[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2msrc/main.ts[22m
+[2m13:54:53[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2msrc/debug/debugBuilder.ts[22m
+[2m13:55:44[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2msrc/gameplay/headlessCombatRuntime.ts[22m
+[2m13:57:33[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2msrc/gameplay/headlessCombatRuntime.ts[22m

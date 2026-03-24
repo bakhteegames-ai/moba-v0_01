@@ -80,6 +80,18 @@ import {
   cloneSharedStructureConversionSnapshot,
   type SharedStructureConversionSnapshot
 } from './sharedStructureConversionStep';
+import {
+  cloneSharedClosureAdvancementSnapshot,
+  type SharedClosureAdvancementSnapshot
+} from './sharedClosureAdvancementHook';
+import {
+  cloneSharedDefenderResponseSnapshot,
+  type SharedDefenderResponseSnapshot
+} from './sharedDefenderResponseSlice';
+import {
+  cloneSharedPushReassertionSnapshot,
+  type SharedPushReassertionSnapshot
+} from './sharedPushReassertionSlice';
 
 type TierScalars = Record<StructurePressureTier, number>;
 type SegmentScalars = Record<LanePressureSegment, number>;
@@ -453,6 +465,9 @@ export interface LivePrototypeSignalProviderDebugState {
     summary: string;
   };
   sharedStructureConversion: SharedStructureConversionSnapshot;
+  sharedClosureAdvancement: SharedClosureAdvancementSnapshot;
+  sharedDefenderResponse: SharedDefenderResponseSnapshot;
+  sharedPushReassertion: SharedPushReassertionSnapshot;
   defenderStateByTier: Record<StructurePressureTier, DefenderHoldState>;
 }
 
@@ -475,6 +490,9 @@ export interface LivePrototypeSignalEventContext {
   sharedLaneConsequence: LivePrototypeSignalProviderDebugState['sharedLaneConsequence'];
   sharedSiegeWindow: LivePrototypeSignalProviderDebugState['sharedSiegeWindow'];
   sharedStructureConversion: LivePrototypeSignalProviderDebugState['sharedStructureConversion'];
+  sharedClosureAdvancement: LivePrototypeSignalProviderDebugState['sharedClosureAdvancement'];
+  sharedDefenderResponse: LivePrototypeSignalProviderDebugState['sharedDefenderResponse'];
+  sharedPushReassertion: LivePrototypeSignalProviderDebugState['sharedPushReassertion'];
 }
 
 export interface LivePrototypeSignalProvider {
@@ -588,7 +606,13 @@ export const createLivePrototypeSignalProvider =
           sharedLaneConsequence: cloneSharedLaneConsequenceDebug(snapshot),
           sharedSiegeWindow: cloneSharedSiegeWindowDebug(snapshot),
           sharedStructureConversion:
-            cloneSharedStructureConversionDebug(snapshot)
+            cloneSharedStructureConversionDebug(snapshot),
+          sharedClosureAdvancement:
+            cloneSharedClosureAdvancementDebug(snapshot),
+          sharedDefenderResponse:
+            cloneSharedDefenderResponseDebug(snapshot),
+          sharedPushReassertion:
+            cloneSharedPushReassertionDebug(snapshot)
         };
       },
       getDebugState() {
@@ -636,6 +660,12 @@ export const createLivePrototypeSignalProvider =
           sharedSiegeWindow: cloneSharedSiegeWindowDebug(snapshot),
           sharedStructureConversion:
             cloneSharedStructureConversionDebug(snapshot),
+          sharedClosureAdvancement:
+            cloneSharedClosureAdvancementDebug(snapshot),
+          sharedDefenderResponse:
+            cloneSharedDefenderResponseDebug(snapshot),
+          sharedPushReassertion:
+            cloneSharedPushReassertionDebug(snapshot),
           defenderStateByTier: { ...snapshot.defenderStateByTier }
         };
       }
@@ -1513,6 +1543,21 @@ const cloneSharedStructureConversionDebug = (
   snapshot: PrototypeLaneStateSnapshot
 ): LivePrototypeSignalProviderDebugState['sharedStructureConversion'] =>
   cloneSharedStructureConversionSnapshot(snapshot.sharedStructureConversion);
+
+const cloneSharedClosureAdvancementDebug = (
+  snapshot: PrototypeLaneStateSnapshot
+): LivePrototypeSignalProviderDebugState['sharedClosureAdvancement'] =>
+  cloneSharedClosureAdvancementSnapshot(snapshot.sharedClosureAdvancement);
+
+const cloneSharedDefenderResponseDebug = (
+  snapshot: PrototypeLaneStateSnapshot
+): LivePrototypeSignalProviderDebugState['sharedDefenderResponse'] =>
+  cloneSharedDefenderResponseSnapshot(snapshot.sharedDefenderResponse);
+
+const cloneSharedPushReassertionDebug = (
+  snapshot: PrototypeLaneStateSnapshot
+): LivePrototypeSignalProviderDebugState['sharedPushReassertion'] =>
+  cloneSharedPushReassertionSnapshot(snapshot.sharedPushReassertion);
 
 const cloneSignals = (signals: LivePrototypeSignals): LivePrototypeSignals => ({
   wave: {

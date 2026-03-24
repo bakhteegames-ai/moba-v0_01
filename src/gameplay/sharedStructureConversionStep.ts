@@ -48,6 +48,7 @@ export interface SharedStructureConversionStepInput {
   structurePressureByTier: TierValues;
   eventByTier: TierEvents;
   resolutionByTier: TierResolutionStates;
+  progressSuppression?: number;
 }
 
 const conversionThreshold = 0.26;
@@ -75,6 +76,7 @@ export const advanceSharedStructureConversionSnapshot = (
     tierEvent.active?.qualifiedSiegeAttempt === true ||
     tierEvent.active?.boundedClosureState === 'bounded' ||
     tierEvent.active?.boundedClosureState === 'forming';
+  const progressSuppression = clamp(input.progressSuppression ?? 0, 0, 0.2);
   const conversionEligible =
     input.sharedSiegeWindow.siegeWindowActive &&
     supportSufficient &&
@@ -126,8 +128,9 @@ export const advanceSharedStructureConversionSnapshot = (
         input.sharedSiegeWindow.pressureSupportLevel * 0.11 +
         input.sharedSiegeWindow.occupancySupportLevel * 0.08 +
         structurePressure * 0.06 +
-        (eventEligible ? 0.05 : 0),
-      0.16,
+        (eventEligible ? 0.05 : 0) -
+        progressSuppression,
+      0.04,
       0.38
     );
     const progressedValue = clamp(

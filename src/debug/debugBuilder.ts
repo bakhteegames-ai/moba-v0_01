@@ -358,6 +358,12 @@ export const createDebugSystem = (
       state?.liveInteraction?.signalProvider.sharedSiegeWindow;
     const sharedStructureConversion =
       state?.liveInteraction?.signalProvider.sharedStructureConversion;
+    const sharedClosureAdvancement =
+      state?.liveInteraction?.signalProvider.sharedClosureAdvancement;
+    const sharedDefenderResponse =
+      state?.liveInteraction?.signalProvider.sharedDefenderResponse;
+    const sharedPushReassertion =
+      state?.liveInteraction?.signalProvider.sharedPushReassertion;
     const headlessCombatMarkup = headlessCombat
       ? `
         <div class="debug-muted">Hero: <span class="debug-strong">${formatCombatHitPoints(headlessCombat.player.currentHp, headlessCombat.player.maxHp)}</span> | alive <span class="debug-strong">${headlessCombat.player.alive ? 'Yes' : 'No'}</span> | cd <span class="debug-strong">${headlessCombat.player.basicAbilityCooldownRemaining.toFixed(2)}s</span></div>
@@ -367,7 +373,10 @@ export const createDebugSystem = (
         <div class="debug-muted">Lane bridge: hero <span class="debug-strong">${formatPressureSegment(headlessCombat.laneBridge.hero.lanePressureSegment)}</span>, blocker <span class="debug-strong">${formatPressureSegment(headlessCombat.laneBridge.blocker.lanePressureSegment)}</span> / <span class="debug-strong">${formatStructureTier(headlessCombat.laneBridge.blocker.structurePressureTier)}</span> | pressure <span class="debug-strong">${formatSignedDelta(headlessCombat.laneBridge.lanePressureDelta)}</span> | occupancy <span class="debug-strong">${headlessCombat.laneBridge.occupancyAdvantage.toFixed(2)}</span> | opportunity <span class="debug-strong">${headlessCombat.laneBridge.structurePressureOpportunityActive ? 'Open' : 'Closed'}</span> ${headlessCombat.laneBridge.opportunityWindowRemainingSeconds.toFixed(2)}s</div>
         <div class="debug-muted">Shared consumer: <span class="debug-strong">${sharedLaneConsequence ? `${formatPressureSegment(sharedLaneConsequence.affectedSegment)} / ${formatStructureTier(sharedLaneConsequence.affectedTier)}` : 'Unavailable'}</span> | pressure <span class="debug-strong">${sharedLaneConsequence ? formatSignedDelta(sharedLaneConsequence.pressureDelta) : 'n/a'}</span> | occupancy <span class="debug-strong">${sharedLaneConsequence ? sharedLaneConsequence.occupancyAdvantage.toFixed(2) : 'n/a'}</span> | ${sharedLaneConsequence?.opportunityActive ? 'active' : 'idle'} ${sharedLaneConsequence ? `${sharedLaneConsequence.opportunityRemainingSeconds.toFixed(2)}s` : ''}</div>
         <div class="debug-muted">Siege window: <span class="debug-strong">${sharedSiegeWindow?.siegeWindowActive ? 'Open' : 'Closed'}</span> ${sharedSiegeWindow ? `${sharedSiegeWindow.siegeWindowRemainingSeconds.toFixed(2)}s` : ''} | <span class="debug-strong">${sharedSiegeWindow ? `${formatPressureSegment(sharedSiegeWindow.sourceSegment)} / ${formatStructureTier(sharedSiegeWindow.sourceTier)}` : 'n/a'}</span> | support <span class="debug-strong">${sharedSiegeWindow ? `${sharedSiegeWindow.pressureSupportLevel.toFixed(2)} / ${sharedSiegeWindow.occupancySupportLevel.toFixed(2)}` : 'n/a'}</span></div>
+        <div class="debug-muted">Defender contest: <span class="debug-strong">${sharedDefenderResponse?.responseActive ? 'Active' : 'Idle'}</span> | eligible <span class="debug-strong">${sharedDefenderResponse?.responseEligible ? 'Yes' : 'No'}</span> | cd <span class="debug-strong">${sharedDefenderResponse ? sharedDefenderResponse.responseCooldownRemaining.toFixed(2) : 'n/a'}</span> | suppress <span class="debug-strong">${sharedDefenderResponse ? `${sharedDefenderResponse.structureConversionSuppression.toFixed(2)} / ${sharedDefenderResponse.closureAdvancementSuppression.toFixed(2)}` : 'n/a'}</span> | last <span class="debug-strong">${sharedDefenderResponse ? formatSharedDefenderResponseAction(sharedDefenderResponse.lastResolvedResponseAction) : 'n/a'}</span></div>
+        <div class="debug-muted">Blue answer: <span class="debug-strong">${sharedPushReassertion?.recoveryActive ? 'Active' : 'Idle'}</span> | eligible <span class="debug-strong">${sharedPushReassertion?.recoveryEligible ? 'Yes' : 'No'}</span> | restore <span class="debug-strong">${sharedPushReassertion ? `${sharedPushReassertion.structureSuppressionRecovery.toFixed(2)} / ${sharedPushReassertion.closureSuppressionRecovery.toFixed(2)}` : 'n/a'}</span> | last <span class="debug-strong">${sharedPushReassertion ? formatSharedPushReassertionAction(sharedPushReassertion.lastResolvedRecoveryAction) : 'n/a'}</span></div>
         <div class="debug-muted">Structure step: <span class="debug-strong">${sharedStructureConversion?.conversionActive ? 'Active' : 'Idle'}</span> | prog <span class="debug-strong">${sharedStructureConversion ? `${sharedStructureConversion.conversionProgress.toFixed(2)} / ${sharedStructureConversion.conversionThreshold.toFixed(2)}` : 'n/a'}</span> | eligible <span class="debug-strong">${sharedStructureConversion?.conversionEligible ? 'Yes' : 'No'}</span> | last <span class="debug-strong">${sharedStructureConversion ? formatSharedStructureResolvedStep(sharedStructureConversion.lastResolvedStructureStep) : 'n/a'}</span></div>
+        <div class="debug-muted">Closure hook: <span class="debug-strong">${sharedClosureAdvancement?.closureAdvancementActive ? 'Active' : 'Idle'}</span> | value <span class="debug-strong">${sharedClosureAdvancement ? sharedClosureAdvancement.closureAdvancementValue.toFixed(2) : 'n/a'}</span> | ready <span class="debug-strong">${sharedClosureAdvancement ? sharedClosureAdvancement.readinessLevel.toFixed(2) : 'n/a'}</span> | last <span class="debug-strong">${sharedClosureAdvancement ? formatSharedClosureResolvedStep(sharedClosureAdvancement.lastResolvedClosureStep) : 'n/a'}</span></div>
         <div class="debug-muted">Bridge outcome: <span class="debug-strong">${headlessCombat.laneBridge.lastBridgeOutcome.summary}</span> | proof <span class="debug-strong">${headlessCombat.laneDeterminismProof.passed ? 'Deterministic' : 'Mismatch'}</span></div>
       `
       : '<div class="debug-muted">Headless combat slice unavailable.</div>';
@@ -1406,6 +1415,27 @@ const formatSharedStructureResolvedStep = (
       : step === 'core-pressure-step-confirmed'
         ? 'Core Pressure Step'
         : 'None';
+
+const formatSharedClosureResolvedStep = (
+  step: 'none' | 'anti-stall-readiness-raised'
+): string =>
+  step === 'anti-stall-readiness-raised'
+    ? 'Anti-Stall Raised'
+    : 'None';
+
+const formatSharedDefenderResponseAction = (
+  action: 'none' | 'contest-pulse-fired'
+): string =>
+  action === 'contest-pulse-fired'
+    ? 'Contest Pulse'
+    : 'None';
+
+const formatSharedPushReassertionAction = (
+  action: 'none' | 'push-reassertion-pulse-fired'
+): string =>
+  action === 'push-reassertion-pulse-fired'
+    ? 'Reassertion Pulse'
+    : 'None';
 
 const formatCalibrationBlockingFactors = (factors: string[]): string =>
   factors.length > 0 ? factors.join(', ') : 'None';

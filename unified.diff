@@ -1,1354 +1,853 @@
---- a/src/main.ts
-+++ b/src/main.ts
-@@ -1,6 +1,8 @@
- import * as pc from 'playcanvas';
- import './styles.css';
-+import { layoutConfig } from './config/layout';
- import { createDebugSystem } from './debug/debugBuilder';
-+import { createHeadlessCombatRuntime } from './gameplay/headlessCombatRuntime';
- import { createPlayerTestController } from './player/playerTestController';
- import { buildGrayboxScene } from './scene/buildGrayboxScene';
- import { createLiveInteractionValidator } from './validation/liveInteractionValidator';
-@@ -19,18 +21,25 @@
- window.addEventListener('resize', () => app.resizeCanvas());
- 
- const registry = buildGrayboxScene(app);
-+const headlessCombat = createHeadlessCombatRuntime();
- const liveInteractionValidator = createLiveInteractionValidator();
- const liveInteractionControls = liveInteractionValidator.getCalibrationOperatorControls();
- const debugSystem = createDebugSystem(registry);
--const playerController = createPlayerTestController(app, registry, debugSystem);
-+const playerController = createPlayerTestController(
-+  app,
-+  registry,
-+  debugSystem,
-+  headlessCombat
-+);
- const tempoHarness = createTempoHarness();
- const wavePressureValidator = createWavePressureValidator(registry);
- 
--app.on('update', (dt: number) => {
-+const runFrame = (dt: number): void => {
-   playerController.update(dt);
-   liveInteractionValidator.update(dt);
-   tempoHarness.update(dt);
-   wavePressureValidator.update(dt);
-+  const headlessCombatSnapshot = headlessCombat.getSnapshot();
-   debugSystem.update({
-     playerPosition: playerController.getPlayerPosition(),
-     camera: playerController.getActiveCamera(),
-@@ -38,11 +47,72 @@
-     tacticalModeLabel: playerController.getTacticalModeLabel(),
-     activeProbeRouteId: playerController.getProbeRouteId(),
-     probeElapsedSeconds: playerController.getProbeElapsedSeconds(),
-+    headlessCombat: headlessCombatSnapshot,
-     liveInteraction: liveInteractionValidator.getDebugState(),
-     liveInteractionControls,
-     tempo: tempoHarness.getDebugState(),
-     wavePressure: wavePressureValidator.getDebugState()
-   });
--});
-+};
-+
-+app.on('update', runFrame);
-+
-+const debugWindow = window as Window & {
-+  advanceTime?: (ms: number) => void;
-+  render_game_to_text?: () => string;
-+};
-+
-+debugWindow.advanceTime = (ms: number): void => {
-+  const fixedStepSeconds = 1 / 60;
-+  const steps = Math.max(1, Math.round(ms / (fixedStepSeconds * 1000)));
-+  for (let stepIndex = 0; stepIndex < steps; stepIndex += 1) {
-+    runFrame(fixedStepSeconds);
-+  }
-+};
-+
-+debugWindow.render_game_to_text = (): string => {
-+  const snapshot = headlessCombat.getSnapshot();
-+  return JSON.stringify({
-+    coordinateSystem: {
-+      origin: layoutConfig.coordinateModel.origin,
-+      xAxis: layoutConfig.coordinateModel.xAxis,
-+      zAxis: layoutConfig.coordinateModel.yAxis
-+    },
-+    combat: {
-+      elapsedSeconds: round(snapshot.elapsedSeconds),
-+      player: {
-+        x: round(snapshot.player.position.x),
-+        z: round(snapshot.player.position.z),
-+        hp: snapshot.player.currentHp,
-+        maxHp: snapshot.player.maxHp,
-+        alive: snapshot.player.alive,
-+        cooldownRemaining: round(
-+          snapshot.player.basicAbilityCooldownRemaining
-+        )
-+      },
-+      target: {
-+        x: round(snapshot.target.position.x),
-+        z: round(snapshot.target.position.z),
-+        hp: snapshot.target.currentHp,
-+        maxHp: snapshot.target.maxHp,
-+        alive: snapshot.target.alive
-+      },
-+      lastCast: snapshot.lastResolvedCast
-+        ? {
-+            success: snapshot.lastResolvedCast.success,
-+            targetEntityId: snapshot.lastResolvedCast.targetEntityId,
-+            damageApplied: snapshot.lastResolvedCast.damageApplied,
-+            failureReason: snapshot.lastResolvedCast.failureReason,
-+            cooldownRemaining: round(
-+              snapshot.lastResolvedCast.cooldownRemaining
-+            )
-+          }
-+        : null,
-+      lastLegalityFailureReason: snapshot.lastLegalityFailureReason
-+    }
-+  });
-+};
- 
- app.start();
-+
-+const round = (value: number): number => Math.round(value * 100) / 100;
---- a/src/player/playerTestController.ts
-+++ b/src/player/playerTestController.ts
-@@ -1,13 +1,11 @@
- import * as pc from 'playcanvas';
- import { type DebugSystem } from '../debug/debugBuilder';
- import { layoutConfig, routeSelectionOrder } from '../config/layout';
-+import { type HeadlessCombatRuntime } from '../gameplay/headlessCombatRuntime';
- import {
-   colorFromHex,
--  logicalToWorld,
-   surfaceHeightAt,
-   type RouteProbeResult,
--  type RuntimeBlocker,
--  type RuntimeWalkArea,
-   type SceneRegistry
- } from '../scene/grayboxFactory';
- 
-@@ -25,7 +23,8 @@
- export const createPlayerTestController = (
-   app: pc.Application,
-   registry: SceneRegistry,
--  debugSystem: DebugSystem
-+  debugSystem: DebugSystem,
-+  headlessCombat: HeadlessCombatRuntime
- ): PlayerTestController => {
-   const keysDown = new Set<string>();
-   const pressedKeys = new Set<string>();
-@@ -37,7 +36,14 @@
-   playerMaterial.gloss = 18;
-   playerMaterial.update();
- 
--  const player = new pc.Entity('TestPawn');
-+  const dummyMaterial = new pc.StandardMaterial();
-+  const dummyColor = colorFromHex('#d36b62');
-+  dummyMaterial.diffuse = dummyColor.clone();
-+  dummyMaterial.emissive = dummyColor.clone().mulScalar(0.12);
-+  dummyMaterial.gloss = 12;
-+  dummyMaterial.update();
-+
-+  const player = new pc.Entity('AuthoritativeHeroProxy');
-   player.addComponent('render', {
-     type: 'capsule',
-     material: playerMaterial
-@@ -49,8 +55,17 @@
-   );
-   registry.root.addChild(player);
- 
--  let logicalPosition = new pc.Vec2(0, 0);
--  let currentYaw = 0;
-+  const dummyTarget = new pc.Entity('CombatDummyProxy');
-+  dummyTarget.addComponent('render', {
-+    type: 'cylinder',
-+    material: dummyMaterial
-+  });
-+  dummyTarget.setLocalScale(
-+    layoutConfig.player.radius * 2,
-+    layoutConfig.player.height * 0.8,
-+    layoutConfig.player.radius * 2
-+  );
-+  registry.root.addChild(dummyTarget);
- 
-   const tacticalCamera = new pc.Entity('TacticalCamera');
-   tacticalCamera.addComponent('camera', {
-@@ -70,7 +85,9 @@
-   let useFollowCamera = false;
-   let topDownTactical = false;
- 
--  const routeIndexById = new Map(routeSelectionOrder.map((routeId, index) => [routeId, index]));
-+  const routeIndexById = new Map(
-+    routeSelectionOrder.map((routeId, index) => [routeId, index])
-+  );
-   let selectedRouteIndex = 0;
-   let activeProbe: {
-     routeId: string;
-@@ -84,7 +101,7 @@
-     }
-     keysDown.add(key);
- 
--    if (['[', ']', 'p', 'g', 'l', 'c', 'v'].includes(key)) {
-+    if (['[', ']', 'p', 'g', 'l', 'c', 'v', 'f', 'space'].includes(key)) {
-       event.preventDefault();
-     }
-   };
-@@ -97,13 +114,15 @@
-   window.addEventListener('keyup', keyup);
- 
-   teleportTo('midline');
-+  syncCombatPresentation();
-   debugSystem.setSelectedRoute(routeSelectionOrder[selectedRouteIndex]);
- 
-   return {
-     update(dt) {
-       processHotkeys();
--      updateMovement(dt);
--      updatePlayerTransform();
-+      updateMovementIntent();
-+      headlessCombat.update(dt);
-+      syncCombatPresentation();
-       updateCameras(dt);
-       updateProbe();
-     },
-@@ -123,13 +142,16 @@
-       return activeProbe?.routeId ?? null;
-     },
-     getProbeElapsedSeconds() {
--      return activeProbe ? performance.now() * 0.001 - activeProbe.startTimeSeconds : null;
-+      return activeProbe
-+        ? performance.now() * 0.001 - activeProbe.startTimeSeconds
-+        : null;
-     },
-     destroy() {
-       window.removeEventListener('keydown', keydown);
-       window.removeEventListener('keyup', keyup);
-       tacticalCamera.destroy();
-       followCamera.destroy();
-+      dummyTarget.destroy();
-       player.destroy();
-     }
-   };
-@@ -153,14 +175,20 @@
-       debugSystem.toggleRoutes();
-     }
- 
-+    if (consumePressed('f') || consumePressed('space')) {
-+      headlessCombat.requestPlayerBasicCast();
-+    }
-+
-     if (consumePressed('[')) {
-       selectedRouteIndex =
--        (selectedRouteIndex + routeSelectionOrder.length - 1) % routeSelectionOrder.length;
-+        (selectedRouteIndex + routeSelectionOrder.length - 1) %
-+        routeSelectionOrder.length;
-       debugSystem.setSelectedRoute(routeSelectionOrder[selectedRouteIndex]);
-     }
- 
-     if (consumePressed(']')) {
--      selectedRouteIndex = (selectedRouteIndex + 1) % routeSelectionOrder.length;
-+      selectedRouteIndex =
-+        (selectedRouteIndex + 1) % routeSelectionOrder.length;
-       debugSystem.setSelectedRoute(routeSelectionOrder[selectedRouteIndex]);
-     }
- 
-@@ -175,7 +203,7 @@
-     }
-   }
- 
--  function updateMovement(dt: number): void {
-+  function updateMovementIntent(): void {
-     let moveX = 0;
-     let moveZ = 0;
- 
-@@ -192,41 +220,56 @@
-       moveX += 1;
-     }
- 
--    if (moveX === 0 && moveZ === 0) {
--      return;
--    }
--
--    const direction = new pc.Vec2(moveX, moveZ);
--    direction.normalize();
--
--    const frameDistance = layoutConfig.player.moveSpeed * dt;
--    const candidateX = logicalPosition.x + direction.x * frameDistance;
--    const candidateZ = logicalPosition.y + direction.y * frameDistance;
--
--    if (canOccupy(candidateX, logicalPosition.y)) {
--      logicalPosition.x = candidateX;
--    }
--    if (canOccupy(logicalPosition.x, candidateZ)) {
--      logicalPosition.y = candidateZ;
--    }
--
--    const desiredYaw = pc.math.RAD_TO_DEG * Math.atan2(direction.x, direction.y) + 180;
--    currentYaw = lerpAngle(currentYaw, desiredYaw, layoutConfig.player.turnLerp * (1 / 60));
--  }
--
--  function updatePlayerTransform(): void {
--    const surfaceHeight = surfaceHeightAt(registry.walkAreas, logicalPosition.x, logicalPosition.y)
--      ?? layoutConfig.elevations.lowerTop;
-+    headlessCombat.submitPlayerMovementIntent({
-+      x: moveX,
-+      z: moveZ
-+    });
-+  }
-+
-+  function syncCombatPresentation(): void {
-+    const snapshot = headlessCombat.getSnapshot();
-+    const playerSurfaceHeight =
-+      surfaceHeightAt(
-+        registry.walkAreas,
-+        snapshot.player.position.x,
-+        snapshot.player.position.z
-+      ) ?? layoutConfig.elevations.lowerTop;
-     player.setPosition(
--      logicalPosition.x,
--      surfaceHeight + layoutConfig.player.height * 0.5,
--      logicalPosition.y
-+      snapshot.player.position.x,
-+      playerSurfaceHeight + layoutConfig.player.height * 0.5,
-+      snapshot.player.position.z
-     );
--    player.setEulerAngles(0, currentYaw, 0);
-+    player.setEulerAngles(
-+      0,
-+      pc.math.RAD_TO_DEG *
-+        Math.atan2(snapshot.player.facing.x, snapshot.player.facing.z) +
-+        180,
-+      0
-+    );
-+
-+    if (snapshot.target.alive) {
-+      const targetSurfaceHeight =
-+        surfaceHeightAt(
-+          registry.walkAreas,
-+          snapshot.target.position.x,
-+          snapshot.target.position.z
-+        ) ?? layoutConfig.elevations.lowerTop;
-+      dummyTarget.enabled = true;
-+      dummyTarget.setPosition(
-+        snapshot.target.position.x,
-+        targetSurfaceHeight + layoutConfig.player.height * 0.4,
-+        snapshot.target.position.z
-+      );
-+    } else {
-+      dummyTarget.enabled = false;
-+    }
-   }
- 
-   function updateCameras(dt: number): void {
--    const focusPoint = player.getPosition().clone().add(new pc.Vec3(0, 1.4, 0));
-+    const focusPoint = player
-+      .getPosition()
-+      .clone()
-+      .add(new pc.Vec3(0, 1.4, 0));
- 
-     if (topDownTactical) {
-       tacticalCamera.setPosition(0, 138, -20);
-@@ -238,7 +281,11 @@
-     const followOffset = new pc.Vec3(0, 18, 18);
-     const followTarget = player.getPosition().clone().add(followOffset);
-     const currentPosition = followCamera.getPosition();
--    const lerped = currentPosition.lerp(currentPosition, followTarget, Math.min(1, dt * 4));
-+    const lerped = currentPosition.lerp(
-+      currentPosition,
-+      followTarget,
-+      Math.min(1, dt * 4)
-+    );
-     followCamera.setPosition(lerped);
-     followCamera.lookAt(focusPoint);
- 
-@@ -251,14 +298,20 @@
-       return;
-     }
- 
--    const route = layoutConfig.routes[routeIndexById.get(activeProbe.routeId) ?? 0];
-+    const route =
-+      layoutConfig.routes[routeIndexById.get(activeProbe.routeId) ?? 0];
-     const end = route.waypoints[route.waypoints.length - 1];
--    const distanceToEnd = Math.hypot(end.x - logicalPosition.x, end.y - logicalPosition.y);
-+    const playerPosition = headlessCombat.getPlayerPosition();
-+    const distanceToEnd = Math.hypot(
-+      end.x - playerPosition.x,
-+      end.y - playerPosition.z
-+    );
-     if (distanceToEnd > 2.25) {
-       return;
-     }
- 
--    const elapsed = performance.now() * 0.001 - activeProbe.startTimeSeconds;
-+    const elapsed =
-+      performance.now() * 0.001 - activeProbe.startTimeSeconds;
-     const result: RouteProbeResult = {
-       routeId: route.id,
-       label: route.label,
-@@ -275,9 +328,11 @@
-   function startSelectedProbe(): void {
-     const route = layoutConfig.routes[selectedRouteIndex];
-     const start = route.waypoints[0];
--    const startHeight = surfaceHeightAt(registry.walkAreas, start.x, start.y) ?? layoutConfig.elevations.lowerTop;
--    logicalPosition = new pc.Vec2(start.x, start.y);
--    player.setPosition(logicalToWorld(start, startHeight + layoutConfig.player.height * 0.5));
-+    headlessCombat.teleportPlayer({
-+      x: start.x,
-+      z: start.y
-+    });
-+    syncCombatPresentation();
-     activeProbe = {
-       routeId: route.id,
-       startTimeSeconds: performance.now() * 0.001
-@@ -290,8 +345,12 @@
-     if (!anchor) {
-       return;
-     }
--    logicalPosition = new pc.Vec2(anchor.x, anchor.z);
--    player.setPosition(anchor.x, anchor.y + layoutConfig.player.height * 0.5, anchor.z);
-+
-+    headlessCombat.teleportPlayer({
-+      x: anchor.x,
-+      z: anchor.z
-+    });
-+    syncCombatPresentation();
-     activeProbe = null;
-   }
- 
-@@ -302,48 +361,12 @@
-     pressedKeys.delete(key);
-     return true;
-   }
--
--  function canOccupy(x: number, z: number): boolean {
--    if (!isOnWalkableSurface(registry.walkAreas, x, z)) {
--      return false;
--    }
--
--    return !collidesWithBlocker(registry.blockers, x, z);
--  }
- };
- 
--const isOnWalkableSurface = (walkAreas: RuntimeWalkArea[], x: number, z: number): boolean =>
--  walkAreas.some((area) => {
--    const edge = layoutConfig.player.edgeBuffer;
--    return (
--      x >= area.xMin + edge &&
--      x <= area.xMax - edge &&
--      z >= area.zMin + edge &&
--      z <= area.zMax - edge
--    );
--  });
--
--const collidesWithBlocker = (
--  blockers: RuntimeBlocker[],
--  x: number,
--  z: number
--): boolean =>
--  blockers.some((blocker) => {
--    const nearestX = pc.math.clamp(x, blocker.xMin, blocker.xMax);
--    const nearestZ = pc.math.clamp(z, blocker.zMin, blocker.zMax);
--    const distanceSquared = (x - nearestX) ** 2 + (z - nearestZ) ** 2;
--    return distanceSquared < layoutConfig.player.radius ** 2;
--  });
--
--const normalizeKey = (key: string): string =>
--  key.length === 1 ? key.toLowerCase() : key.toLowerCase();
--
--const lerpAngle = (current: number, target: number, t: number): number => {
--  let delta = (target - current) % 360;
--  if (delta > 180) {
--    delta -= 360;
--  } else if (delta < -180) {
--    delta += 360;
--  }
--  return current + delta * Math.min(1, t);
-+const normalizeKey = (key: string): string => {
-+  if (key === ' ') {
-+    return 'space';
-+  }
-+
-+  return key.length === 1 ? key.toLowerCase() : key.toLowerCase();
- };
+diff --git a/src/debug/debugBuilder.ts b/src/debug/debugBuilder.ts
+index 2927071..c51560a 100644
 --- a/src/debug/debugBuilder.ts
 +++ b/src/debug/debugBuilder.ts
-@@ -1,6 +1,7 @@
- import * as pc from 'playcanvas';
- import { layoutConfig, type RouteDef, type ValidationBand, type ZoneCategory } from '../config/layout';
- import { type RouteProbeResult, colorFromHex, type SceneRegistry } from '../scene/grayboxFactory';
-+import { type HeadlessCombatRuntimeSnapshot } from '../gameplay/headlessCombatRuntime';
- import {
-   type LiveInteractionCalibrationOperatorControls,
-   type LiveInteractionDebugState
-@@ -15,6 +16,7 @@
-   tacticalModeLabel: string;
-   activeProbeRouteId: string | null;
-   probeElapsedSeconds: number | null;
-+  headlessCombat?: HeadlessCombatRuntimeSnapshot;
-   liveInteraction?: LiveInteractionDebugState;
-   liveInteractionControls?: LiveInteractionCalibrationOperatorControls;
-   tempo?: TempoHarnessDebugState;
-@@ -121,6 +123,7 @@
- 
-   const controls = [
-     '`WASD` move the proxy',
-+    '`F` / `Space` queue the authoritative basic cast on the nearby dummy target',
-     '`C` toggle tactical / follow camera',
-     '`V` switch tactical angle / top-down',
-     '`[` / `]` cycle route probes',
-@@ -348,6 +351,15 @@
-         <div class="debug-muted">Next stage in: <span class="debug-strong">${wavePressure.secondsToNextStage.toFixed(1)}s</span></div>
+@@ -358,6 +358,12 @@ export const createDebugSystem = (
+       state?.liveInteraction?.signalProvider.sharedSiegeWindow;
+     const sharedStructureConversion =
+       state?.liveInteraction?.signalProvider.sharedStructureConversion;
++    const sharedClosureAdvancement =
++      state?.liveInteraction?.signalProvider.sharedClosureAdvancement;
++    const sharedDefenderResponse =
++      state?.liveInteraction?.signalProvider.sharedDefenderResponse;
++    const sharedPushReassertion =
++      state?.liveInteraction?.signalProvider.sharedPushReassertion;
+     const headlessCombatMarkup = headlessCombat
+       ? `
+         <div class="debug-muted">Hero: <span class="debug-strong">${formatCombatHitPoints(headlessCombat.player.currentHp, headlessCombat.player.maxHp)}</span> | alive <span class="debug-strong">${headlessCombat.player.alive ? 'Yes' : 'No'}</span> | cd <span class="debug-strong">${headlessCombat.player.basicAbilityCooldownRemaining.toFixed(2)}s</span></div>
+@@ -367,7 +373,10 @@ export const createDebugSystem = (
+         <div class="debug-muted">Lane bridge: hero <span class="debug-strong">${formatPressureSegment(headlessCombat.laneBridge.hero.lanePressureSegment)}</span>, blocker <span class="debug-strong">${formatPressureSegment(headlessCombat.laneBridge.blocker.lanePressureSegment)}</span> / <span class="debug-strong">${formatStructureTier(headlessCombat.laneBridge.blocker.structurePressureTier)}</span> | pressure <span class="debug-strong">${formatSignedDelta(headlessCombat.laneBridge.lanePressureDelta)}</span> | occupancy <span class="debug-strong">${headlessCombat.laneBridge.occupancyAdvantage.toFixed(2)}</span> | opportunity <span class="debug-strong">${headlessCombat.laneBridge.structurePressureOpportunityActive ? 'Open' : 'Closed'}</span> ${headlessCombat.laneBridge.opportunityWindowRemainingSeconds.toFixed(2)}s</div>
+         <div class="debug-muted">Shared consumer: <span class="debug-strong">${sharedLaneConsequence ? `${formatPressureSegment(sharedLaneConsequence.affectedSegment)} / ${formatStructureTier(sharedLaneConsequence.affectedTier)}` : 'Unavailable'}</span> | pressure <span class="debug-strong">${sharedLaneConsequence ? formatSignedDelta(sharedLaneConsequence.pressureDelta) : 'n/a'}</span> | occupancy <span class="debug-strong">${sharedLaneConsequence ? sharedLaneConsequence.occupancyAdvantage.toFixed(2) : 'n/a'}</span> | ${sharedLaneConsequence?.opportunityActive ? 'active' : 'idle'} ${sharedLaneConsequence ? `${sharedLaneConsequence.opportunityRemainingSeconds.toFixed(2)}s` : ''}</div>
+         <div class="debug-muted">Siege window: <span class="debug-strong">${sharedSiegeWindow?.siegeWindowActive ? 'Open' : 'Closed'}</span> ${sharedSiegeWindow ? `${sharedSiegeWindow.siegeWindowRemainingSeconds.toFixed(2)}s` : ''} | <span class="debug-strong">${sharedSiegeWindow ? `${formatPressureSegment(sharedSiegeWindow.sourceSegment)} / ${formatStructureTier(sharedSiegeWindow.sourceTier)}` : 'n/a'}</span> | support <span class="debug-strong">${sharedSiegeWindow ? `${sharedSiegeWindow.pressureSupportLevel.toFixed(2)} / ${sharedSiegeWindow.occupancySupportLevel.toFixed(2)}` : 'n/a'}</span></div>
++        <div class="debug-muted">Defender contest: <span class="debug-strong">${sharedDefenderResponse?.responseActive ? 'Active' : 'Idle'}</span> | eligible <span class="debug-strong">${sharedDefenderResponse?.responseEligible ? 'Yes' : 'No'}</span> | cd <span class="debug-strong">${sharedDefenderResponse ? sharedDefenderResponse.responseCooldownRemaining.toFixed(2) : 'n/a'}</span> | suppress <span class="debug-strong">${sharedDefenderResponse ? `${sharedDefenderResponse.structureConversionSuppression.toFixed(2)} / ${sharedDefenderResponse.closureAdvancementSuppression.toFixed(2)}` : 'n/a'}</span> | last <span class="debug-strong">${sharedDefenderResponse ? formatSharedDefenderResponseAction(sharedDefenderResponse.lastResolvedResponseAction) : 'n/a'}</span></div>
++        <div class="debug-muted">Blue answer: <span class="debug-strong">${sharedPushReassertion?.recoveryActive ? 'Active' : 'Idle'}</span> | eligible <span class="debug-strong">${sharedPushReassertion?.recoveryEligible ? 'Yes' : 'No'}</span> | restore <span class="debug-strong">${sharedPushReassertion ? `${sharedPushReassertion.structureSuppressionRecovery.toFixed(2)} / ${sharedPushReassertion.closureSuppressionRecovery.toFixed(2)}` : 'n/a'}</span> | last <span class="debug-strong">${sharedPushReassertion ? formatSharedPushReassertionAction(sharedPushReassertion.lastResolvedRecoveryAction) : 'n/a'}</span></div>
+         <div class="debug-muted">Structure step: <span class="debug-strong">${sharedStructureConversion?.conversionActive ? 'Active' : 'Idle'}</span> | prog <span class="debug-strong">${sharedStructureConversion ? `${sharedStructureConversion.conversionProgress.toFixed(2)} / ${sharedStructureConversion.conversionThreshold.toFixed(2)}` : 'n/a'}</span> | eligible <span class="debug-strong">${sharedStructureConversion?.conversionEligible ? 'Yes' : 'No'}</span> | last <span class="debug-strong">${sharedStructureConversion ? formatSharedStructureResolvedStep(sharedStructureConversion.lastResolvedStructureStep) : 'n/a'}</span></div>
++        <div class="debug-muted">Closure hook: <span class="debug-strong">${sharedClosureAdvancement?.closureAdvancementActive ? 'Active' : 'Idle'}</span> | value <span class="debug-strong">${sharedClosureAdvancement ? sharedClosureAdvancement.closureAdvancementValue.toFixed(2) : 'n/a'}</span> | ready <span class="debug-strong">${sharedClosureAdvancement ? sharedClosureAdvancement.readinessLevel.toFixed(2) : 'n/a'}</span> | last <span class="debug-strong">${sharedClosureAdvancement ? formatSharedClosureResolvedStep(sharedClosureAdvancement.lastResolvedClosureStep) : 'n/a'}</span></div>
+         <div class="debug-muted">Bridge outcome: <span class="debug-strong">${headlessCombat.laneBridge.lastBridgeOutcome.summary}</span> | proof <span class="debug-strong">${headlessCombat.laneDeterminismProof.passed ? 'Deterministic' : 'Mismatch'}</span></div>
        `
-       : '<div class="debug-muted">Wave-pressure simulation unavailable.</div>';
-+    const headlessCombat = state?.headlessCombat;
-+    const headlessCombatMarkup = headlessCombat
-+      ? `
-+        <div class="debug-muted">Hero: <span class="debug-strong">${formatCombatHitPoints(headlessCombat.player.currentHp, headlessCombat.player.maxHp)}</span> | alive <span class="debug-strong">${headlessCombat.player.alive ? 'Yes' : 'No'}</span> | cd <span class="debug-strong">${headlessCombat.player.basicAbilityCooldownRemaining.toFixed(2)}s</span></div>
-+        <div class="debug-muted">Target: <span class="debug-strong">${formatCombatHitPoints(headlessCombat.target.currentHp, headlessCombat.target.maxHp)}</span> | alive <span class="debug-strong">${headlessCombat.target.alive ? 'Yes' : 'No'}</span> | pos <span class="debug-strong">${headlessCombat.target.position.x.toFixed(1)}, ${headlessCombat.target.position.z.toFixed(1)}</span></div>
-+        <div class="debug-muted">Last cast: <span class="debug-strong">${formatHeadlessCombatCastResult(headlessCombat.lastResolvedCast)}</span></div>
-+        <div class="debug-muted">Failure reason: <span class="debug-strong">${formatHeadlessCombatFailureReason(headlessCombat.lastLegalityFailureReason)}</span></div>
-+      `
-+      : '<div class="debug-muted">Headless combat slice unavailable.</div>';
-     const liveInteraction = state?.liveInteraction;
-     const operatorControlsEnabled = Boolean(liveInteractionControls && liveInteraction);
-     Object.values(operatorButtons).forEach((button) => {
-@@ -483,6 +495,10 @@
-         ${resultMarkup}
-       </section>
-       <section>
-+        <div class="debug-muted">Headless Combat Slice</div>
-+        ${headlessCombatMarkup}
-+      </section>
-+      <section>
-         <div class="debug-muted">Wave Pressure Sim</div>
-         ${wavePressureMarkup}
-       </section>
-@@ -1335,6 +1351,36 @@
-               ? 'Rerun For Signal'
-               : 'Clear Frozen Review';
+       : '<div class="debug-muted">Headless combat slice unavailable.</div>';
+@@ -1407,6 +1416,27 @@ const formatSharedStructureResolvedStep = (
+         ? 'Core Pressure Step'
+         : 'None';
  
-+const formatCombatHitPoints = (currentHp: number, maxHp: number): string =>
-+  `${currentHp}/${maxHp}`;
-+
-+const formatHeadlessCombatCastResult = (
-+  result: HeadlessCombatRuntimeSnapshot['lastResolvedCast']
-+): string => {
-+  if (!result) {
-+    return 'No cast yet';
-+  }
-+
-+  if (result.success) {
-+    return `Hit ${result.targetEntityId} for ${result.damageApplied} (${result.targetHpAfter ?? 0} HP left)`;
-+  }
-+
-+  return `Rejected ${formatHeadlessCombatFailureReason(result.failureReason ?? 'none')}`;
-+};
-+
-+const formatHeadlessCombatFailureReason = (
-+  reason: HeadlessCombatRuntimeSnapshot['lastLegalityFailureReason']
++const formatSharedClosureResolvedStep = (
++  step: 'none' | 'anti-stall-readiness-raised'
 +): string =>
-+  reason === 'on-cooldown'
-+    ? 'On Cooldown'
-+    : reason === 'out-of-range'
-+      ? 'Out Of Range'
-+      : reason === 'dead-actor'
-+        ? 'Dead Actor'
-+        : reason === 'invalid-target'
-+          ? 'Invalid Target'
-+          : 'None';
++  step === 'anti-stall-readiness-raised'
++    ? 'Anti-Stall Raised'
++    : 'None';
++
++const formatSharedDefenderResponseAction = (
++  action: 'none' | 'contest-pulse-fired'
++): string =>
++  action === 'contest-pulse-fired'
++    ? 'Contest Pulse'
++    : 'None';
++
++const formatSharedPushReassertionAction = (
++  action: 'none' | 'push-reassertion-pulse-fired'
++): string =>
++  action === 'push-reassertion-pulse-fired'
++    ? 'Reassertion Pulse'
++    : 'None';
 +
  const formatCalibrationBlockingFactors = (factors: string[]): string =>
    factors.length > 0 ? factors.join(', ') : 'None';
  
---- /dev/null
-+++ b/src/combat/headlessCombatCore.ts
-@@ -0,0 +1,568 @@
-+export interface CombatVector2 {
-+  x: number;
-+  z: number;
-+}
-+
-+export type CombatTeam = 'blue' | 'red';
-+
-+export type CombatAbilityId = 'hero-basic-shot';
-+
-+export type CombatCastFailureReason =
-+  | 'on-cooldown'
-+  | 'out-of-range'
-+  | 'dead-actor'
-+  | 'invalid-target';
-+
-+export interface CombatMovementIntent {
-+  kind: 'movement';
-+  direction: CombatVector2;
-+}
-+
-+export interface CombatCastAbilityIntent {
-+  kind: 'cast-ability';
-+  abilityId: CombatAbilityId;
-+  targetEntityId: string;
-+}
-+
-+export interface CombatAbilityDefinition {
-+  id: CombatAbilityId;
-+  cooldownSeconds: number;
-+  castRange: number;
-+  damage: number;
-+}
-+
-+export interface HeadlessHeroCombatState {
-+  id: string;
-+  team: CombatTeam;
-+  position: CombatVector2;
-+  facing: CombatVector2;
-+  moveSpeed: number;
-+  bodyRadius: number;
-+  currentHp: number;
-+  maxHp: number;
-+  alive: boolean;
-+  basicAbilityCooldownRemaining: number;
-+}
-+
-+export interface HeadlessCombatEntityConfig {
-+  id: string;
-+  team: CombatTeam;
-+  position: CombatVector2;
-+  facing?: CombatVector2;
-+  moveSpeed: number;
-+  bodyRadius: number;
-+  maxHp: number;
-+  currentHp?: number;
-+}
-+
-+export interface HeadlessCombatWalkArea {
-+  xMin: number;
-+  xMax: number;
-+  zMin: number;
-+  zMax: number;
-+}
-+
-+export interface HeadlessCombatBlocker {
-+  xMin: number;
-+  xMax: number;
-+  zMin: number;
-+  zMax: number;
-+}
-+
-+export interface HeadlessCombatArenaGeometry {
-+  walkAreas: HeadlessCombatWalkArea[];
-+  blockers: HeadlessCombatBlocker[];
-+  edgeBuffer: number;
-+}
-+
-+export interface CombatCastResolutionSnapshot {
-+  sequence: number;
-+  actorId: string;
-+  abilityId: CombatAbilityId;
-+  targetEntityId: string;
-+  success: boolean;
-+  failureReason: CombatCastFailureReason | null;
-+  damageApplied: number;
-+  targetHpAfter: number | null;
-+  targetAliveAfter: boolean | null;
-+  cooldownRemaining: number;
-+}
-+
-+export interface HeadlessCombatSimulationSnapshot {
-+  elapsedSeconds: number;
-+  fixedStepSeconds: number;
-+  entities: Record<string, HeadlessHeroCombatState>;
-+  lastResolvedCast: CombatCastResolutionSnapshot | null;
-+  lastLegalityFailureReason: CombatCastFailureReason | 'none';
-+}
-+
-+export interface HeadlessCombatSimulationConfig {
-+  fixedStepSeconds?: number;
-+  ability: CombatAbilityDefinition;
-+  arena: HeadlessCombatArenaGeometry;
-+  entities: HeadlessCombatEntityConfig[];
-+}
-+
-+export interface HeadlessCombatSimulation {
-+  submitMovementIntent(actorId: string, intent: CombatMovementIntent): void;
-+  submitCastIntent(actorId: string, intent: CombatCastAbilityIntent): void;
-+  forceSetEntityPosition(actorId: string, position: CombatVector2): void;
-+  update(dt: number): void;
-+  getSnapshot(): HeadlessCombatSimulationSnapshot;
-+}
-+
-+interface RuntimeState {
-+  elapsedSeconds: number;
-+  accumulatorSeconds: number;
-+  fixedStepSeconds: number;
-+  ability: CombatAbilityDefinition;
-+  arena: HeadlessCombatArenaGeometry;
-+  entities: Record<string, HeadlessHeroCombatState>;
-+  movementIntentsByActorId: Record<string, CombatMovementIntent>;
-+  castQueue: Array<{
-+    sequence: number;
-+    actorId: string;
-+    intent: CombatCastAbilityIntent;
-+  }>;
-+  nextCastSequence: number;
-+  lastResolvedCast: CombatCastResolutionSnapshot | null;
-+}
-+
-+const defaultFixedStepSeconds = 1 / 60;
-+
-+export const createHeadlessCombatSimulation = (
-+  config: HeadlessCombatSimulationConfig
-+): HeadlessCombatSimulation => {
-+  const state: RuntimeState = {
-+    elapsedSeconds: 0,
-+    accumulatorSeconds: 0,
-+    fixedStepSeconds: config.fixedStepSeconds ?? defaultFixedStepSeconds,
-+    ability: {
-+      id: config.ability.id,
-+      cooldownSeconds: config.ability.cooldownSeconds,
-+      castRange: config.ability.castRange,
-+      damage: config.ability.damage
-+    },
-+    arena: cloneArena(config.arena),
-+    entities: Object.fromEntries(
-+      config.entities.map((entity) => [
-+        entity.id,
-+        createEntityState(entity)
-+      ])
+diff --git a/src/gameplay/headlessCombatRuntime.ts b/src/gameplay/headlessCombatRuntime.ts
+index e90ae6c..450c2d7 100644
+--- a/src/gameplay/headlessCombatRuntime.ts
++++ b/src/gameplay/headlessCombatRuntime.ts
+@@ -75,6 +75,9 @@ const basicAbility = {
+   damage: 34
+ };
+ const fixedStepSeconds = 1 / 60;
++const deterministicApproachLeadSeconds = 7;
++const deterministicCastConfirmSeconds = 0.1;
++const deterministicContestSampleSeconds = 0.25;
+ 
+ export const createHeadlessCombatRuntime = (): HeadlessCombatRuntime => {
+   const arena = createArenaFromLayout();
+@@ -274,7 +277,7 @@ const runLaneDeterminismProof = (
+     passed,
+     signature: firstSignature,
+     summary: passed
+-      ? 'Repeated fixed-step blocker-clear script produced the same bounded shared structure-conversion lifecycle.'
++      ? 'Repeated fixed-step blocker-clear script produced the same bounded mirrored contest and recovery exchange.'
+       : 'Fixed-step blocker-clear script diverged between identical runs.'
+   };
+ };
+@@ -329,6 +332,12 @@ const runDeterministicBridgeScenario = (
+   proofLaneStateLoop.setSharedLaneConsequence(
+     adaptHeadlessCombatLaneBridgeToLaneConsequence(proofBridge.getSnapshot())
+   );
++  advanceDeterministicScenario(
++    proofSimulation,
++    proofBridge,
++    proofLaneStateLoop,
++    Math.round(deterministicApproachLeadSeconds / fixedStepSeconds)
++  );
+ 
+   for (let hitIndex = 0; hitIndex < 3; hitIndex += 1) {
+     proofSimulation.submitCastIntent(playerHeroId, {
+@@ -340,7 +349,7 @@ const runDeterministicBridgeScenario = (
+       proofSimulation,
+       proofBridge,
+       proofLaneStateLoop,
+-      1
++      Math.round(deterministicCastConfirmSeconds / fixedStepSeconds)
+     );
+     if (hitIndex < 2) {
+       advanceDeterministicScenario(
+@@ -356,7 +365,7 @@ const runDeterministicBridgeScenario = (
+     proofSimulation,
+     proofBridge,
+     proofLaneStateLoop,
+-    Math.round(0.75 / fixedStepSeconds)
++    Math.round(deterministicContestSampleSeconds / fixedStepSeconds)
+   );
+ 
+   const simulationSnapshot = proofSimulation.getSnapshot();
+@@ -366,8 +375,14 @@ const runDeterministicBridgeScenario = (
+   const sharedLaneModifier =
+     buildHeadlessBridgeLaneModifier(sharedLaneConsequence);
+   const sharedLaneSnapshot = proofLaneStateLoop.getSnapshot();
++  const resolvedDefenderResponse =
++    sharedLaneSnapshot.sharedDefenderResponse;
++  const resolvedPushReassertion =
++    sharedLaneSnapshot.sharedPushReassertion;
+   const resolvedStructureConversion =
+     sharedLaneSnapshot.sharedStructureConversion;
++  const resolvedClosureAdvancement =
++    sharedLaneSnapshot.sharedClosureAdvancement;
+   advanceDeterministicScenario(
+     proofSimulation,
+     proofBridge,
+@@ -404,18 +419,70 @@ const runDeterministicBridgeScenario = (
+     sharedLaneSnapshot.sharedSiegeWindow.triggerReason,
+     round(sharedLaneSnapshot.sharedSiegeWindow.pressureSupportLevel),
+     round(sharedLaneSnapshot.sharedSiegeWindow.occupancySupportLevel),
++    resolvedDefenderResponse.responseActive ? 'active' : 'idle',
++    resolvedDefenderResponse.responseEligible ? 'eligible' : 'ineligible',
++    round(resolvedDefenderResponse.structureConversionSuppression),
++    round(resolvedDefenderResponse.closureAdvancementSuppression),
++    resolvedDefenderResponse.triggerReason,
++    resolvedDefenderResponse.lastResolvedResponseAction,
++    resolvedPushReassertion.recoveryActive ? 'active' : 'idle',
++    resolvedPushReassertion.recoveryEligible ? 'eligible' : 'ineligible',
++    round(resolvedPushReassertion.structureSuppressionRecovery),
++    round(resolvedPushReassertion.closureSuppressionRecovery),
++    resolvedPushReassertion.triggerReason,
++    resolvedPushReassertion.lastResolvedRecoveryAction,
+     resolvedStructureConversion.conversionActive ? 'active' : 'idle',
+     round(resolvedStructureConversion.conversionProgress),
+     round(resolvedStructureConversion.conversionThreshold),
+     resolvedStructureConversion.conversionEligible ? 'eligible' : 'ineligible',
+     resolvedStructureConversion.triggerReason,
+     resolvedStructureConversion.lastResolvedStructureStep,
++    resolvedClosureAdvancement.closureAdvancementActive ? 'active' : 'idle',
++    round(resolvedClosureAdvancement.closureAdvancementValue),
++    round(resolvedClosureAdvancement.readinessLevel),
++    resolvedClosureAdvancement.readinessEligible ? 'eligible' : 'ineligible',
++    resolvedClosureAdvancement.triggerReason,
++    resolvedClosureAdvancement.lastResolvedClosureStep,
+     expiredLaneSnapshot.sharedStructureConversion.conversionActive
+       ? 'active'
+       : 'idle',
+     round(expiredLaneSnapshot.sharedStructureConversion.conversionProgress),
+     expiredLaneSnapshot.sharedStructureConversion.triggerReason,
+-    expiredLaneSnapshot.sharedStructureConversion.lastResolvedStructureStep
++    expiredLaneSnapshot.sharedStructureConversion.lastResolvedStructureStep,
++    expiredLaneSnapshot.sharedDefenderResponse.responseActive
++      ? 'active'
++      : 'idle',
++    expiredLaneSnapshot.sharedDefenderResponse.responseEligible
++      ? 'eligible'
++      : 'ineligible',
++    round(
++      expiredLaneSnapshot.sharedDefenderResponse.structureConversionSuppression
 +    ),
-+    movementIntentsByActorId: Object.fromEntries(
-+      config.entities.map((entity) => [
-+        entity.id,
-+        {
-+          kind: 'movement' as const,
-+          direction: { x: 0, z: 0 }
-+        }
-+      ])
++    round(
++      expiredLaneSnapshot.sharedDefenderResponse.closureAdvancementSuppression
 +    ),
-+    castQueue: [],
-+    nextCastSequence: 1,
-+    lastResolvedCast: null
-+  };
++    expiredLaneSnapshot.sharedDefenderResponse.triggerReason,
++    expiredLaneSnapshot.sharedDefenderResponse.lastResolvedResponseAction,
++    expiredLaneSnapshot.sharedPushReassertion.recoveryActive
++      ? 'active'
++      : 'idle',
++    expiredLaneSnapshot.sharedPushReassertion.recoveryEligible
++      ? 'eligible'
++      : 'ineligible',
++    round(
++      expiredLaneSnapshot.sharedPushReassertion.structureSuppressionRecovery
++    ),
++    round(
++      expiredLaneSnapshot.sharedPushReassertion.closureSuppressionRecovery
++    ),
++    expiredLaneSnapshot.sharedPushReassertion.triggerReason,
++    expiredLaneSnapshot.sharedPushReassertion.lastResolvedRecoveryAction,
++    expiredLaneSnapshot.sharedClosureAdvancement.closureAdvancementActive
++      ? 'active'
++      : 'idle',
++    round(expiredLaneSnapshot.sharedClosureAdvancement.closureAdvancementValue),
++    expiredLaneSnapshot.sharedClosureAdvancement.triggerReason,
++    expiredLaneSnapshot.sharedClosureAdvancement.lastResolvedClosureStep
+   ].join('|');
+ };
+ 
+diff --git a/src/gameplay/livePrototypeSignalProvider.ts b/src/gameplay/livePrototypeSignalProvider.ts
+index 246d912..f717580 100644
+--- a/src/gameplay/livePrototypeSignalProvider.ts
++++ b/src/gameplay/livePrototypeSignalProvider.ts
+@@ -80,6 +80,18 @@ import {
+   cloneSharedStructureConversionSnapshot,
+   type SharedStructureConversionSnapshot
+ } from './sharedStructureConversionStep';
++import {
++  cloneSharedClosureAdvancementSnapshot,
++  type SharedClosureAdvancementSnapshot
++} from './sharedClosureAdvancementHook';
++import {
++  cloneSharedDefenderResponseSnapshot,
++  type SharedDefenderResponseSnapshot
++} from './sharedDefenderResponseSlice';
++import {
++  cloneSharedPushReassertionSnapshot,
++  type SharedPushReassertionSnapshot
++} from './sharedPushReassertionSlice';
+ 
+ type TierScalars = Record<StructurePressureTier, number>;
+ type SegmentScalars = Record<LanePressureSegment, number>;
+@@ -453,6 +465,9 @@ export interface LivePrototypeSignalProviderDebugState {
+     summary: string;
+   };
+   sharedStructureConversion: SharedStructureConversionSnapshot;
++  sharedClosureAdvancement: SharedClosureAdvancementSnapshot;
++  sharedDefenderResponse: SharedDefenderResponseSnapshot;
++  sharedPushReassertion: SharedPushReassertionSnapshot;
+   defenderStateByTier: Record<StructurePressureTier, DefenderHoldState>;
+ }
+ 
+@@ -475,6 +490,9 @@ export interface LivePrototypeSignalEventContext {
+   sharedLaneConsequence: LivePrototypeSignalProviderDebugState['sharedLaneConsequence'];
+   sharedSiegeWindow: LivePrototypeSignalProviderDebugState['sharedSiegeWindow'];
+   sharedStructureConversion: LivePrototypeSignalProviderDebugState['sharedStructureConversion'];
++  sharedClosureAdvancement: LivePrototypeSignalProviderDebugState['sharedClosureAdvancement'];
++  sharedDefenderResponse: LivePrototypeSignalProviderDebugState['sharedDefenderResponse'];
++  sharedPushReassertion: LivePrototypeSignalProviderDebugState['sharedPushReassertion'];
+ }
+ 
+ export interface LivePrototypeSignalProvider {
+@@ -588,7 +606,13 @@ export const createLivePrototypeSignalProvider =
+           sharedLaneConsequence: cloneSharedLaneConsequenceDebug(snapshot),
+           sharedSiegeWindow: cloneSharedSiegeWindowDebug(snapshot),
+           sharedStructureConversion:
+-            cloneSharedStructureConversionDebug(snapshot)
++            cloneSharedStructureConversionDebug(snapshot),
++          sharedClosureAdvancement:
++            cloneSharedClosureAdvancementDebug(snapshot),
++          sharedDefenderResponse:
++            cloneSharedDefenderResponseDebug(snapshot),
++          sharedPushReassertion:
++            cloneSharedPushReassertionDebug(snapshot)
+         };
+       },
+       getDebugState() {
+@@ -636,6 +660,12 @@ export const createLivePrototypeSignalProvider =
+           sharedSiegeWindow: cloneSharedSiegeWindowDebug(snapshot),
+           sharedStructureConversion:
+             cloneSharedStructureConversionDebug(snapshot),
++          sharedClosureAdvancement:
++            cloneSharedClosureAdvancementDebug(snapshot),
++          sharedDefenderResponse:
++            cloneSharedDefenderResponseDebug(snapshot),
++          sharedPushReassertion:
++            cloneSharedPushReassertionDebug(snapshot),
+           defenderStateByTier: { ...snapshot.defenderStateByTier }
+         };
+       }
+@@ -1514,6 +1544,21 @@ const cloneSharedStructureConversionDebug = (
+ ): LivePrototypeSignalProviderDebugState['sharedStructureConversion'] =>
+   cloneSharedStructureConversionSnapshot(snapshot.sharedStructureConversion);
+ 
++const cloneSharedClosureAdvancementDebug = (
++  snapshot: PrototypeLaneStateSnapshot
++): LivePrototypeSignalProviderDebugState['sharedClosureAdvancement'] =>
++  cloneSharedClosureAdvancementSnapshot(snapshot.sharedClosureAdvancement);
 +
-+  return {
-+    submitMovementIntent(actorId, intent) {
-+      if (!state.entities[actorId]) {
-+        return;
-+      }
++const cloneSharedDefenderResponseDebug = (
++  snapshot: PrototypeLaneStateSnapshot
++): LivePrototypeSignalProviderDebugState['sharedDefenderResponse'] =>
++  cloneSharedDefenderResponseSnapshot(snapshot.sharedDefenderResponse);
 +
-+      state.movementIntentsByActorId[actorId] = {
-+        kind: 'movement',
-+        direction: normalizeVector(intent.direction)
-+      };
-+    },
-+    submitCastIntent(actorId, intent) {
-+      if (!state.entities[actorId]) {
-+        return;
-+      }
++const cloneSharedPushReassertionDebug = (
++  snapshot: PrototypeLaneStateSnapshot
++): LivePrototypeSignalProviderDebugState['sharedPushReassertion'] =>
++  cloneSharedPushReassertionSnapshot(snapshot.sharedPushReassertion);
 +
-+      state.castQueue.push({
-+        sequence: state.nextCastSequence,
-+        actorId,
-+        intent: {
-+          kind: 'cast-ability',
-+          abilityId: intent.abilityId,
-+          targetEntityId: intent.targetEntityId
-+        }
+ const cloneSignals = (signals: LivePrototypeSignals): LivePrototypeSignals => ({
+   wave: {
+     progressionBySegment: { ...signals.wave.progressionBySegment },
+diff --git a/src/gameplay/prototypeLaneStateLoop.ts b/src/gameplay/prototypeLaneStateLoop.ts
+index 6e1d7bc..00d2179 100644
+--- a/src/gameplay/prototypeLaneStateLoop.ts
++++ b/src/gameplay/prototypeLaneStateLoop.ts
+@@ -98,6 +98,24 @@ import {
+   createDefaultSharedStructureConversionSnapshot,
+   type SharedStructureConversionSnapshot
+ } from './sharedStructureConversionStep';
++import {
++  advanceSharedClosureAdvancementSnapshot,
++  cloneSharedClosureAdvancementSnapshot,
++  createDefaultSharedClosureAdvancementSnapshot,
++  type SharedClosureAdvancementSnapshot
++} from './sharedClosureAdvancementHook';
++import {
++  advanceSharedDefenderResponseSnapshot,
++  cloneSharedDefenderResponseSnapshot,
++  createDefaultSharedDefenderResponseSnapshot,
++  type SharedDefenderResponseSnapshot
++} from './sharedDefenderResponseSlice';
++import {
++  advanceSharedPushReassertionSnapshot,
++  cloneSharedPushReassertionSnapshot,
++  createDefaultSharedPushReassertionSnapshot,
++  type SharedPushReassertionSnapshot
++} from './sharedPushReassertionSlice';
+ 
+ type SegmentValues = Record<LanePressureSegment, number>;
+ type TierValues = Record<StructurePressureTier, number>;
+@@ -153,6 +171,9 @@ export interface PrototypeLaneStateSnapshot {
+   sharedLaneConsequence: HeadlessBridgeLaneConsequenceSnapshot;
+   sharedSiegeWindow: SharedSiegeWindowSnapshot;
+   sharedStructureConversion: SharedStructureConversionSnapshot;
++  sharedClosureAdvancement: SharedClosureAdvancementSnapshot;
++  sharedDefenderResponse: SharedDefenderResponseSnapshot;
++  sharedPushReassertion: SharedPushReassertionSnapshot;
+ }
+ 
+ export interface PrototypeLaneOutcomeSample {
+@@ -231,6 +252,12 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
+   let sharedSiegeWindow = createDefaultSharedSiegeWindowSnapshot();
+   let sharedStructureConversion =
+     createDefaultSharedStructureConversionSnapshot();
++  let sharedClosureAdvancement =
++    createDefaultSharedClosureAdvancementSnapshot();
++  let sharedDefenderResponse =
++    createDefaultSharedDefenderResponseSnapshot();
++  let sharedPushReassertion =
++    createDefaultSharedPushReassertionSnapshot();
+   const memory: LaneStateMemory = {
+     elapsedSeconds: 0,
+     carryoverPressureState: 1,
+@@ -342,14 +369,6 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
+         eventSnapshot
+       );
+       const resolutionSnapshot = structureResolutionMemory.getSnapshot();
+-      sharedStructureConversion = advanceSharedStructureConversionSnapshot({
+-        dt,
+-        previous: sharedStructureConversion,
+-        sharedSiegeWindow,
+-        structurePressureByTier: structurePressureEstimate,
+-        eventByTier: eventSnapshot.byTier,
+-        resolutionByTier: resolutionSnapshot.byTier
+-      });
+       laneClosurePosture.update(dt, {
+         resolutionByTier: {
+           outer: resolutionSnapshot.byTier.outer,
+@@ -362,6 +381,64 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
+         consecutiveWaveCarryoverRelevance: occupancy.consecutiveWaveCarryoverRelevance
+       });
+       const laneClosureSnapshot = laneClosurePosture.getSnapshot();
++      sharedDefenderResponse = advanceSharedDefenderResponseSnapshot({
++        dt,
++        previous: sharedDefenderResponse,
++        sharedSiegeWindow,
++        structureConversion: sharedStructureConversion,
++        laneClosure: laneClosureSnapshot
 +      });
-+      state.nextCastSequence += 1;
-+    },
-+    forceSetEntityPosition(actorId, position) {
-+      const entity = state.entities[actorId];
-+      if (!entity) {
-+        return;
-+      }
++      sharedPushReassertion = advanceSharedPushReassertionSnapshot({
++        dt,
++        previous: sharedPushReassertion,
++        sharedSiegeWindow,
++        structureConversion: sharedStructureConversion,
++        defenderResponse: sharedDefenderResponse,
++        laneClosure: laneClosureSnapshot
++      });
++      const effectiveStructureSuppression = clamp(
++        sharedDefenderResponse.structureConversionSuppression -
++          sharedPushReassertion.structureSuppressionRecovery,
++        0,
++        0.2
++      );
++      const effectiveClosureSuppression = clamp(
++        sharedDefenderResponse.closureAdvancementSuppression -
++          sharedPushReassertion.closureSuppressionRecovery,
++        0,
++        0.35
++      );
++      sharedStructureConversion = advanceSharedStructureConversionSnapshot({
++        dt,
++        previous: sharedStructureConversion,
++        sharedSiegeWindow,
++        structurePressureByTier: structurePressureEstimate,
++        eventByTier: eventSnapshot.byTier,
++        resolutionByTier: resolutionSnapshot.byTier,
++        progressSuppression: effectiveStructureSuppression
++      });
++      sharedClosureAdvancement = advanceSharedClosureAdvancementSnapshot({
++        dt,
++        previous: sharedClosureAdvancement,
++        structureConversion: sharedStructureConversion,
++        laneClosure: laneClosureSnapshot,
++        readinessSuppression: effectiveClosureSuppression
++      });
++      const closureCarryoverPressureState = clamp(
++        memory.carryoverPressureState +
++          sharedClosureAdvancement.closureAdvancementValue * 0.03 -
++          effectiveClosureSuppression * 0.02,
++        carryoverStateMin,
++        carryoverStateMax
++      );
++      const closureCarryoverRelevance = clamp(
++        occupancy.consecutiveWaveCarryoverRelevance +
++          sharedClosureAdvancement.readinessLevel * 0.08 +
++          (sharedClosureAdvancement.lastResolvedClosureStep !== 'none' ? 0.04 : 0) -
++          effectiveClosureSuppression * 0.08,
++        0,
++        1
++      );
+       closurePacingInterpreter.update(dt, {
+         laneClosure: laneClosureSnapshot,
+         resolutionByTier: {
+@@ -372,8 +449,8 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
+         structurePressureByTier: structurePressureEstimate,
+         structureContactByTier: occupancy.structureContactByTier,
+         lanePressureBySegment: lanePressureEstimate,
+-        carryoverPressureState: memory.carryoverPressureState,
+-        consecutiveWaveCarryoverRelevance: occupancy.consecutiveWaveCarryoverRelevance
++        carryoverPressureState: closureCarryoverPressureState,
++        consecutiveWaveCarryoverRelevance: closureCarryoverRelevance
+       });
+       const closurePacingSnapshot = closurePacingInterpreter.getSnapshot();
+       closurePacingWatch.update(dt, {
+@@ -484,7 +561,10 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
+         calibrationOperatorLoopClosureSnapshot,
+         sharedLaneConsequence,
+         sharedSiegeWindow,
+-        sharedStructureConversion
++        sharedStructureConversion,
++        sharedClosureAdvancement,
++        sharedDefenderResponse,
++        sharedPushReassertion
+       );
+     },
+     recordOutcome(sample) {
+@@ -681,7 +761,10 @@ const computeSnapshot = (
+   calibrationOperatorLoopClosureSnapshot: CalibrationOperatorLoopClosureSnapshot,
+   sharedLaneConsequenceSnapshot: HeadlessBridgeLaneConsequenceSnapshot,
+   sharedSiegeWindowSnapshot: SharedSiegeWindowSnapshot,
+-  sharedStructureConversionSnapshot: SharedStructureConversionSnapshot
++  sharedStructureConversionSnapshot: SharedStructureConversionSnapshot,
++  sharedClosureAdvancementSnapshot: SharedClosureAdvancementSnapshot,
++  sharedDefenderResponseSnapshot: SharedDefenderResponseSnapshot,
++  sharedPushReassertionSnapshot: SharedPushReassertionSnapshot
+ ): PrototypeLaneStateSnapshot => {
+   const sharedLaneModifier =
+     buildHeadlessBridgeLaneModifier(sharedLaneConsequenceSnapshot);
+@@ -970,6 +1053,15 @@ const computeSnapshot = (
+     ),
+     sharedStructureConversion: cloneSharedStructureConversionSnapshot(
+       sharedStructureConversionSnapshot
++    ),
++    sharedClosureAdvancement: cloneSharedClosureAdvancementSnapshot(
++      sharedClosureAdvancementSnapshot
++    ),
++    sharedDefenderResponse: cloneSharedDefenderResponseSnapshot(
++      sharedDefenderResponseSnapshot
++    ),
++    sharedPushReassertion: cloneSharedPushReassertionSnapshot(
++      sharedPushReassertionSnapshot
+     )
+   };
+ };
+diff --git a/src/main.ts b/src/main.ts
+index c6def75..08c15fe 100644
+--- a/src/main.ts
++++ b/src/main.ts
+@@ -236,6 +236,112 @@ debugWindow.render_game_to_text = (): string => {
+         summary:
+           liveInteractionSnapshot.signalProvider.sharedStructureConversion.summary
+       },
++      sharedClosureAdvancement: {
++        active:
++          liveInteractionSnapshot.signalProvider.sharedClosureAdvancement
++            .closureAdvancementActive,
++        value: round(
++          liveInteractionSnapshot.signalProvider.sharedClosureAdvancement
++            .closureAdvancementValue
++        ),
++        readinessLevel: round(
++          liveInteractionSnapshot.signalProvider.sharedClosureAdvancement
++            .readinessLevel
++        ),
++        eligible:
++          liveInteractionSnapshot.signalProvider.sharedClosureAdvancement
++            .readinessEligible,
++        sourceSegment:
++          liveInteractionSnapshot.signalProvider.sharedClosureAdvancement
++            .sourceSegment,
++        sourceTier:
++          liveInteractionSnapshot.signalProvider.sharedClosureAdvancement
++            .sourceTier,
++        triggerReason:
++          liveInteractionSnapshot.signalProvider.sharedClosureAdvancement
++            .triggerReason,
++        lastResolvedClosureStep:
++          liveInteractionSnapshot.signalProvider.sharedClosureAdvancement
++            .lastResolvedClosureStep,
++        summary:
++          liveInteractionSnapshot.signalProvider.sharedClosureAdvancement.summary
++      },
++      sharedDefenderResponse: {
++        active:
++          liveInteractionSnapshot.signalProvider.sharedDefenderResponse
++            .responseActive,
++        eligible:
++          liveInteractionSnapshot.signalProvider.sharedDefenderResponse
++            .responseEligible,
++        cooldownRemaining: round(
++          liveInteractionSnapshot.signalProvider.sharedDefenderResponse
++            .responseCooldownRemaining
++        ),
++        remaining: round(
++          liveInteractionSnapshot.signalProvider.sharedDefenderResponse
++            .responseRemainingSeconds
++        ),
++        sourceSegment:
++          liveInteractionSnapshot.signalProvider.sharedDefenderResponse
++            .sourceSegment,
++        sourceTier:
++          liveInteractionSnapshot.signalProvider.sharedDefenderResponse
++            .sourceTier,
++        structureSuppression: round(
++          liveInteractionSnapshot.signalProvider.sharedDefenderResponse
++            .structureConversionSuppression
++        ),
++        closureSuppression: round(
++          liveInteractionSnapshot.signalProvider.sharedDefenderResponse
++            .closureAdvancementSuppression
++        ),
++        triggerReason:
++          liveInteractionSnapshot.signalProvider.sharedDefenderResponse
++            .triggerReason,
++        lastResolvedResponseAction:
++          liveInteractionSnapshot.signalProvider.sharedDefenderResponse
++            .lastResolvedResponseAction,
++        summary:
++          liveInteractionSnapshot.signalProvider.sharedDefenderResponse.summary
++      },
++      sharedPushReassertion: {
++        active:
++          liveInteractionSnapshot.signalProvider.sharedPushReassertion
++            .recoveryActive,
++        eligible:
++          liveInteractionSnapshot.signalProvider.sharedPushReassertion
++            .recoveryEligible,
++        cooldownRemaining: round(
++          liveInteractionSnapshot.signalProvider.sharedPushReassertion
++            .recoveryCooldownRemaining
++        ),
++        remaining: round(
++          liveInteractionSnapshot.signalProvider.sharedPushReassertion
++            .recoveryRemainingSeconds
++        ),
++        sourceSegment:
++          liveInteractionSnapshot.signalProvider.sharedPushReassertion
++            .sourceSegment,
++        sourceTier:
++          liveInteractionSnapshot.signalProvider.sharedPushReassertion
++            .sourceTier,
++        structureRecovery: round(
++          liveInteractionSnapshot.signalProvider.sharedPushReassertion
++            .structureSuppressionRecovery
++        ),
++        closureRecovery: round(
++          liveInteractionSnapshot.signalProvider.sharedPushReassertion
++            .closureSuppressionRecovery
++        ),
++        triggerReason:
++          liveInteractionSnapshot.signalProvider.sharedPushReassertion
++            .triggerReason,
++        lastResolvedRecoveryAction:
++          liveInteractionSnapshot.signalProvider.sharedPushReassertion
++            .lastResolvedRecoveryAction,
++        summary:
++          liveInteractionSnapshot.signalProvider.sharedPushReassertion.summary
++      },
+       determinismProof: {
+         passed: snapshot.laneDeterminismProof.passed,
+         signature: snapshot.laneDeterminismProof.signature,
+
+diff --git a/src/gameplay/sharedPushReassertionSlice.ts b/src/gameplay/sharedPushReassertionSlice.ts
+new file mode 100644
+index 0000000..c6198f9
+--- /dev/null
++++ b/src/gameplay/sharedPushReassertionSlice.ts
+@@ -0,0 +1,256 @@
++import {
++  type LanePressureSegment,
++  type StructurePressureTier
++} from './pressureCalibrationScaffold';
++import {
++  type LaneClosurePostureSnapshot
++} from './laneClosurePosture';
++import {
++  type SharedSiegeWindowSnapshot
++} from './sharedSiegeWindowConversion';
++import {
++  type SharedStructureConversionSnapshot
++} from './sharedStructureConversionStep';
++import {
++  type SharedDefenderResponseSnapshot
++} from './sharedDefenderResponseSlice';
 +
-+      entity.position = cloneVector(position);
-+    },
-+    update(dt) {
-+      if (dt <= 0) {
-+        return;
-+      }
++export type SharedPushReassertionAction =
++  | 'none'
++  | 'push-reassertion-pulse-fired';
 +
-+      state.accumulatorSeconds += dt;
-+      while (state.accumulatorSeconds >= state.fixedStepSeconds) {
-+        stepFixedState(state, state.fixedStepSeconds);
-+        state.accumulatorSeconds -= state.fixedStepSeconds;
-+      }
-+    },
-+    getSnapshot() {
-+      return cloneSnapshot(state);
-+    }
-+  };
-+};
++export type SharedPushReassertionTriggerReason =
++  | 'none'
++  | 'waiting-for-contest'
++  | 'waiting-for-support'
++  | 'cooldown'
++  | 'push-reassertion-pulse-fired'
++  | 'effect-expired';
 +
-+export const canOccupyCombatPosition = (
-+  arena: HeadlessCombatArenaGeometry,
-+  position: CombatVector2,
-+  bodyRadius: number
-+): boolean => {
-+  const clearance = bodyRadius + arena.edgeBuffer;
-+  const onWalkableSurface = arena.walkAreas.some((area) =>
-+    position.x >= area.xMin + clearance &&
-+    position.x <= area.xMax - clearance &&
-+    position.z >= area.zMin + clearance &&
-+    position.z <= area.zMax - clearance
-+  );
++export interface SharedPushReassertionSnapshot {
++  responderId: string;
++  recoveryActive: boolean;
++  recoveryEligible: boolean;
++  actionKind: SharedPushReassertionAction;
++  recoveryCooldownRemaining: number;
++  recoveryRemainingSeconds: number;
++  sourceSegment: LanePressureSegment;
++  sourceTier: StructurePressureTier;
++  structureSuppressionRecovery: number;
++  closureSuppressionRecovery: number;
++  lastResolvedRecoveryAction: SharedPushReassertionAction;
++  triggerReason: SharedPushReassertionTriggerReason;
++  summary: string;
++}
 +
-+  if (!onWalkableSurface) {
-+    return false;
-+  }
++export interface SharedPushReassertionInput {
++  dt: number;
++  previous: SharedPushReassertionSnapshot;
++  sharedSiegeWindow: SharedSiegeWindowSnapshot;
++  structureConversion: SharedStructureConversionSnapshot;
++  defenderResponse: SharedDefenderResponseSnapshot;
++  laneClosure: LaneClosurePostureSnapshot;
++}
 +
-+  return !arena.blockers.some((blocker) => {
-+    const nearestX = clamp(position.x, blocker.xMin, blocker.xMax);
-+    const nearestZ = clamp(position.z, blocker.zMin, blocker.zMax);
-+    const distanceSquared =
-+      (position.x - nearestX) ** 2 + (position.z - nearestZ) ** 2;
-+    return distanceSquared < bodyRadius ** 2;
-+  });
-+};
++const responderId = 'blue-push-reassertion-proxy';
++const reassertionPulseDurationSeconds = 0.95;
++const reassertionPulseCooldownSeconds = 2.7;
++const minimumPressureSupport = 0.48;
++const minimumOccupancySupport = 0.4;
++const minimumStructuralCarryover = 0.28;
++const minimumContestableProgress = 0.03;
 +
-+export const resolveNearestWalkableCombatPosition = (
-+  arena: HeadlessCombatArenaGeometry,
-+  preferredPosition: CombatVector2,
-+  bodyRadius: number
-+): CombatVector2 => {
-+  if (canOccupyCombatPosition(arena, preferredPosition, bodyRadius)) {
-+    return cloneVector(preferredPosition);
-+  }
-+
-+  const searchStep = Math.max(0.4, bodyRadius * 0.5);
-+  const directions: CombatVector2[] = [
-+    { x: -1, z: 0 },
-+    { x: 1, z: 0 },
-+    { x: 0, z: -1 },
-+    { x: 0, z: 1 },
-+    { x: -1, z: -1 },
-+    { x: -1, z: 1 },
-+    { x: 1, z: -1 },
-+    { x: 1, z: 1 }
-+  ];
-+
-+  for (let ring = 1; ring <= 16; ring += 1) {
-+    const offsetDistance = ring * searchStep;
-+    for (const direction of directions) {
-+      const normalizedDirection = normalizeVector(direction);
-+      const candidate = {
-+        x: preferredPosition.x + normalizedDirection.x * offsetDistance,
-+        z: preferredPosition.z + normalizedDirection.z * offsetDistance
-+      };
-+
-+      if (canOccupyCombatPosition(arena, candidate, bodyRadius)) {
-+        return candidate;
-+      }
-+    }
-+  }
-+
-+  return cloneVector(preferredPosition);
-+};
-+
-+const stepFixedState = (state: RuntimeState, dt: number): void => {
-+  state.elapsedSeconds += dt;
-+
-+  const sortedEntityIds = Object.keys(state.entities).sort();
-+  for (const entityId of sortedEntityIds) {
-+    const entity = state.entities[entityId];
-+    if (!entity.alive) {
-+      entity.basicAbilityCooldownRemaining = 0;
-+      continue;
-+    }
-+
-+    entity.basicAbilityCooldownRemaining = Math.max(
-+      0,
-+      entity.basicAbilityCooldownRemaining - dt
-+    );
-+  }
-+
-+  for (const entityId of sortedEntityIds) {
-+    const entity = state.entities[entityId];
-+    const movementIntent = state.movementIntentsByActorId[entityId];
-+    if (!movementIntent) {
-+      continue;
-+    }
-+
-+    applyMovementIntent(state.arena, entity, movementIntent, dt);
-+  }
-+
-+  if (state.castQueue.length === 0) {
-+    return;
-+  }
-+
-+  const queuedCasts = [...state.castQueue].sort(
-+    (left, right) => left.sequence - right.sequence
-+  );
-+  state.castQueue = [];
-+
-+  for (const queuedCast of queuedCasts) {
-+    state.lastResolvedCast = resolveCastIntent(
-+      state,
-+      queuedCast.sequence,
-+      queuedCast.actorId,
-+      queuedCast.intent
-+    );
-+  }
-+};
-+
-+const applyMovementIntent = (
-+  arena: HeadlessCombatArenaGeometry,
-+  entity: HeadlessHeroCombatState,
-+  intent: CombatMovementIntent,
-+  dt: number
-+): void => {
-+  if (!entity.alive) {
-+    return;
-+  }
-+
-+  const direction = normalizeVector(intent.direction);
-+  if (direction.x === 0 && direction.z === 0) {
-+    return;
-+  }
-+
-+  const frameDistance = entity.moveSpeed * dt;
-+  const candidateX = {
-+    x: entity.position.x + direction.x * frameDistance,
-+    z: entity.position.z
-+  };
-+  const candidateZ = {
-+    x: entity.position.x,
-+    z: entity.position.z + direction.z * frameDistance
-+  };
-+
-+  if (canOccupyCombatPosition(arena, candidateX, entity.bodyRadius)) {
-+    entity.position.x = candidateX.x;
-+  }
-+
-+  if (canOccupyCombatPosition(arena, candidateZ, entity.bodyRadius)) {
-+    entity.position.z = candidateZ.z;
-+  }
-+
-+  entity.facing = direction;
-+};
-+
-+const resolveCastIntent = (
-+  state: RuntimeState,
-+  sequence: number,
-+  actorId: string,
-+  intent: CombatCastAbilityIntent
-+): CombatCastResolutionSnapshot => {
-+  const actor = state.entities[actorId];
-+  if (!actor || !actor.alive) {
-+    return createFailedCastResolution(
-+      sequence,
-+      actorId,
-+      intent,
-+      'dead-actor',
-+      actor?.basicAbilityCooldownRemaining ?? 0
-+    );
-+  }
-+
-+  const target = state.entities[intent.targetEntityId];
-+  if (!target || !target.alive || target.team === actor.team) {
-+    return createFailedCastResolution(
-+      sequence,
-+      actorId,
-+      intent,
-+      'invalid-target',
-+      actor.basicAbilityCooldownRemaining
-+    );
-+  }
-+
-+  if (intent.abilityId !== state.ability.id) {
-+    return createFailedCastResolution(
-+      sequence,
-+      actorId,
-+      intent,
-+      'invalid-target',
-+      actor.basicAbilityCooldownRemaining
-+    );
-+  }
-+
-+  if (actor.basicAbilityCooldownRemaining > 0) {
-+    return createFailedCastResolution(
-+      sequence,
-+      actorId,
-+      intent,
-+      'on-cooldown',
-+      actor.basicAbilityCooldownRemaining
-+    );
-+  }
-+
-+  const targetDistance = Math.hypot(
-+    target.position.x - actor.position.x,
-+    target.position.z - actor.position.z
-+  );
-+  const maxAllowedDistance =
-+    state.ability.castRange + actor.bodyRadius + target.bodyRadius;
-+
-+  if (targetDistance > maxAllowedDistance) {
-+    return createFailedCastResolution(
-+      sequence,
-+      actorId,
-+      intent,
-+      'out-of-range',
-+      actor.basicAbilityCooldownRemaining
-+    );
-+  }
-+
-+  actor.basicAbilityCooldownRemaining = state.ability.cooldownSeconds;
-+  actor.facing = normalizeVector({
-+    x: target.position.x - actor.position.x,
-+    z: target.position.z - actor.position.z
-+  });
-+
-+  target.currentHp = Math.max(0, target.currentHp - state.ability.damage);
-+  target.alive = target.currentHp > 0;
-+
-+  return {
-+    sequence,
-+    actorId,
-+    abilityId: intent.abilityId,
-+    targetEntityId: intent.targetEntityId,
-+    success: true,
-+    failureReason: null,
-+    damageApplied: state.ability.damage,
-+    targetHpAfter: target.currentHp,
-+    targetAliveAfter: target.alive,
-+    cooldownRemaining: actor.basicAbilityCooldownRemaining
-+  };
-+};
-+
-+const createEntityState = (
-+  entity: HeadlessCombatEntityConfig
-+): HeadlessHeroCombatState => {
-+  const currentHp = clamp(
-+    entity.currentHp ?? entity.maxHp,
++export const advanceSharedPushReassertionSnapshot = (
++  input: SharedPushReassertionInput
++): SharedPushReassertionSnapshot => {
++  const dt = Math.max(0, input.dt);
++  const sourceSegment = input.sharedSiegeWindow.sourceSegment;
++  const sourceTier = input.sharedSiegeWindow.sourceTier;
++  const cooldownRemaining = Math.max(
 +    0,
-+    entity.maxHp
++    input.previous.recoveryCooldownRemaining - dt
 +  );
++  const remainingSeconds = Math.max(
++    0,
++    input.previous.recoveryRemainingSeconds - dt
++  );
++  const recoveryEligible =
++    input.defenderResponse.responseActive &&
++    input.sharedSiegeWindow.siegeWindowActive &&
++    (input.structureConversion.conversionActive ||
++      input.structureConversion.conversionEligible ||
++      input.structureConversion.conversionProgress >=
++        minimumContestableProgress ||
++      input.laneClosure.structuralCarryoverLevel >= minimumStructuralCarryover) &&
++    (input.sharedSiegeWindow.pressureSupportLevel >= minimumPressureSupport ||
++      input.sharedSiegeWindow.occupancySupportLevel >= minimumOccupancySupport);
 +
-+  return {
-+    id: entity.id,
-+    team: entity.team,
-+    position: cloneVector(entity.position),
-+    facing: normalizeVector(entity.facing ?? { x: 0, z: 1 }),
-+    moveSpeed: entity.moveSpeed,
-+    bodyRadius: entity.bodyRadius,
-+    currentHp,
-+    maxHp: entity.maxHp,
-+    alive: currentHp > 0,
-+    basicAbilityCooldownRemaining: 0
-+  };
-+};
-+
-+const createFailedCastResolution = (
-+  sequence: number,
-+  actorId: string,
-+  intent: CombatCastAbilityIntent,
-+  failureReason: CombatCastFailureReason,
-+  cooldownRemaining: number
-+): CombatCastResolutionSnapshot => ({
-+  sequence,
-+  actorId,
-+  abilityId: intent.abilityId,
-+  targetEntityId: intent.targetEntityId,
-+  success: false,
-+  failureReason,
-+  damageApplied: 0,
-+  targetHpAfter: null,
-+  targetAliveAfter: null,
-+  cooldownRemaining
-+});
-+
-+const cloneSnapshot = (
-+  state: RuntimeState
-+): HeadlessCombatSimulationSnapshot => ({
-+  elapsedSeconds: state.elapsedSeconds,
-+  fixedStepSeconds: state.fixedStepSeconds,
-+  entities: Object.fromEntries(
-+    Object.entries(state.entities).map(([entityId, entity]) => [
-+      entityId,
-+      cloneEntityState(entity)
-+    ])
-+  ),
-+  lastResolvedCast: state.lastResolvedCast
-+    ? {
-+        sequence: state.lastResolvedCast.sequence,
-+        actorId: state.lastResolvedCast.actorId,
-+        abilityId: state.lastResolvedCast.abilityId,
-+        targetEntityId: state.lastResolvedCast.targetEntityId,
-+        success: state.lastResolvedCast.success,
-+        failureReason: state.lastResolvedCast.failureReason,
-+        damageApplied: state.lastResolvedCast.damageApplied,
-+        targetHpAfter: state.lastResolvedCast.targetHpAfter,
-+        targetAliveAfter: state.lastResolvedCast.targetAliveAfter,
-+        cooldownRemaining: state.lastResolvedCast.cooldownRemaining
-+      }
-+    : null,
-+  lastLegalityFailureReason:
-+    state.lastResolvedCast && !state.lastResolvedCast.success
-+      ? state.lastResolvedCast.failureReason ?? 'none'
-+      : 'none'
-+});
-+
-+const cloneEntityState = (
-+  entity: HeadlessHeroCombatState
-+): HeadlessHeroCombatState => ({
-+  id: entity.id,
-+  team: entity.team,
-+  position: cloneVector(entity.position),
-+  facing: cloneVector(entity.facing),
-+  moveSpeed: entity.moveSpeed,
-+  bodyRadius: entity.bodyRadius,
-+  currentHp: entity.currentHp,
-+  maxHp: entity.maxHp,
-+  alive: entity.alive,
-+  basicAbilityCooldownRemaining: entity.basicAbilityCooldownRemaining
-+});
-+
-+const cloneArena = (
-+  arena: HeadlessCombatArenaGeometry
-+): HeadlessCombatArenaGeometry => ({
-+  walkAreas: arena.walkAreas.map((area) => ({ ...area })),
-+  blockers: arena.blockers.map((blocker) => ({ ...blocker })),
-+  edgeBuffer: arena.edgeBuffer
-+});
-+
-+const cloneVector = (vector: CombatVector2): CombatVector2 => ({
-+  x: vector.x,
-+  z: vector.z
-+});
-+
-+const normalizeVector = (vector: CombatVector2): CombatVector2 => {
-+  const length = Math.hypot(vector.x, vector.z);
-+  if (length <= 0.0001) {
-+    return { x: 0, z: 0 };
++  if (input.previous.recoveryActive && remainingSeconds > 0) {
++    const intensity = clamp(
++      remainingSeconds / reassertionPulseDurationSeconds,
++      0,
++      1
++    );
++    return buildSnapshot(
++      true,
++      recoveryEligible,
++      'push-reassertion-pulse-fired',
++      cooldownRemaining,
++      remainingSeconds,
++      sourceSegment,
++      sourceTier,
++      0.04 + intensity * 0.04,
++      0.08 + intensity * 0.05,
++      input.previous.lastResolvedRecoveryAction,
++      'push-reassertion-pulse-fired',
++      'Blue-side push reassertion pulse is partially recovering the contested window.'
++    );
 +  }
 +
-+  return {
-+    x: vector.x / length,
-+    z: vector.z / length
-+  };
++  if (input.previous.recoveryActive && remainingSeconds <= 0) {
++    return buildSnapshot(
++      false,
++      recoveryEligible,
++      'none',
++      cooldownRemaining,
++      0,
++      sourceSegment,
++      sourceTier,
++      0,
++      0,
++      input.previous.lastResolvedRecoveryAction,
++      'effect-expired',
++      'Blue-side push reassertion pulse expired and the recovery window closed.'
++    );
++  }
++
++  if (cooldownRemaining > 0) {
++    return buildSnapshot(
++      false,
++      recoveryEligible,
++      'none',
++      cooldownRemaining,
++      0,
++      sourceSegment,
++      sourceTier,
++      0,
++      0,
++      input.previous.lastResolvedRecoveryAction,
++      recoveryEligible ? 'cooldown' : deriveWaitingReason(input),
++      recoveryEligible
++        ? 'Blue-side push reassertion is eligible but still recharging.'
++        : buildWaitingSummary(input)
++    );
++  }
++
++  if (recoveryEligible) {
++    return buildSnapshot(
++      true,
++      true,
++      'push-reassertion-pulse-fired',
++      reassertionPulseCooldownSeconds,
++      reassertionPulseDurationSeconds,
++      sourceSegment,
++      sourceTier,
++      0.08,
++      0.13,
++      'push-reassertion-pulse-fired',
++      'push-reassertion-pulse-fired',
++      'Blue-side push reassertion pulse answered the defender contest.'
++    );
++  }
++
++  return buildSnapshot(
++    false,
++    false,
++    'none',
++    cooldownRemaining,
++    0,
++    sourceSegment,
++    sourceTier,
++    0,
++    0,
++    input.previous.lastResolvedRecoveryAction,
++    deriveWaitingReason(input),
++    buildWaitingSummary(input)
++  );
 +};
++
++export const createDefaultSharedPushReassertionSnapshot =
++  (): SharedPushReassertionSnapshot =>
++    buildSnapshot(
++      false,
++      false,
++      'none',
++      0,
++      0,
++      'outer-front',
++      'outer',
++      0,
++      0,
++      'none',
++      'none',
++      'Blue-side push reassertion is idle.'
++    );
++
++export const cloneSharedPushReassertionSnapshot = (
++  snapshot: SharedPushReassertionSnapshot
++): SharedPushReassertionSnapshot => ({
++  responderId: snapshot.responderId,
++  recoveryActive: snapshot.recoveryActive,
++  recoveryEligible: snapshot.recoveryEligible,
++  actionKind: snapshot.actionKind,
++  recoveryCooldownRemaining: snapshot.recoveryCooldownRemaining,
++  recoveryRemainingSeconds: snapshot.recoveryRemainingSeconds,
++  sourceSegment: snapshot.sourceSegment,
++  sourceTier: snapshot.sourceTier,
++  structureSuppressionRecovery: snapshot.structureSuppressionRecovery,
++  closureSuppressionRecovery: snapshot.closureSuppressionRecovery,
++  lastResolvedRecoveryAction: snapshot.lastResolvedRecoveryAction,
++  triggerReason: snapshot.triggerReason,
++  summary: snapshot.summary
++});
++
++const buildSnapshot = (
++  recoveryActive: boolean,
++  recoveryEligible: boolean,
++  actionKind: SharedPushReassertionAction,
++  recoveryCooldownRemaining: number,
++  recoveryRemainingSeconds: number,
++  sourceSegment: LanePressureSegment,
++  sourceTier: StructurePressureTier,
++  structureSuppressionRecovery: number,
++  closureSuppressionRecovery: number,
++  lastResolvedRecoveryAction: SharedPushReassertionAction,
++  triggerReason: SharedPushReassertionTriggerReason,
++  summary: string
++): SharedPushReassertionSnapshot => ({
++  responderId,
++  recoveryActive,
++  recoveryEligible,
++  actionKind,
++  recoveryCooldownRemaining: Math.max(0, recoveryCooldownRemaining),
++  recoveryRemainingSeconds: Math.max(0, recoveryRemainingSeconds),
++  sourceSegment,
++  sourceTier,
++  structureSuppressionRecovery: clamp(structureSuppressionRecovery, 0, 0.12),
++  closureSuppressionRecovery: clamp(closureSuppressionRecovery, 0, 0.18),
++  lastResolvedRecoveryAction,
++  triggerReason,
++  summary
++});
++
++const deriveWaitingReason = (
++  input: SharedPushReassertionInput
++): SharedPushReassertionTriggerReason =>
++  input.defenderResponse.responseActive ? 'waiting-for-support' : 'waiting-for-contest';
++
++const buildWaitingSummary = (
++  input: SharedPushReassertionInput
++): string =>
++  !input.defenderResponse.responseActive
++    ? 'Blue-side push reassertion is waiting for a live defender contest pulse.'
++    : 'Blue-side push reassertion is waiting for enough remaining push support to answer the contest.';
 +
 +const clamp = (value: number, min: number, max: number): number =>
 +  Math.max(min, Math.min(max, value));
---- /dev/null
-+++ b/src/gameplay/headlessCombatRuntime.ts
-@@ -0,0 +1,217 @@
-+import { layoutConfig } from '../config/layout';
-+import {
-+  canOccupyCombatPosition,
-+  createHeadlessCombatSimulation,
-+  resolveNearestWalkableCombatPosition,
-+  type CombatAbilityId,
-+  type CombatCastFailureReason,
-+  type CombatCastResolutionSnapshot,
-+  type CombatVector2,
-+  type HeadlessCombatArenaGeometry,
-+  type HeadlessCombatBlocker,
-+  type HeadlessHeroCombatState,
-+  type HeadlessCombatWalkArea
-+} from '../combat/headlessCombatCore';
-+
-+export interface HeadlessCombatRuntimeEntitySnapshot {
-+  id: string;
-+  team: 'blue' | 'red';
-+  position: CombatVector2;
-+  facing: CombatVector2;
-+  moveSpeed: number;
-+  bodyRadius: number;
-+  currentHp: number;
-+  maxHp: number;
-+  alive: boolean;
-+  basicAbilityCooldownRemaining: number;
-+}
-+
-+export interface HeadlessCombatRuntimeSnapshot {
-+  elapsedSeconds: number;
-+  fixedStepSeconds: number;
-+  abilityId: CombatAbilityId;
-+  player: HeadlessCombatRuntimeEntitySnapshot;
-+  target: HeadlessCombatRuntimeEntitySnapshot;
-+  lastResolvedCast: CombatCastResolutionSnapshot | null;
-+  lastLegalityFailureReason: CombatCastFailureReason | 'none';
-+}
-+
-+export interface HeadlessCombatRuntime {
-+  update(dt: number): void;
-+  submitPlayerMovementIntent(direction: CombatVector2): void;
-+  requestPlayerBasicCast(): void;
-+  teleportPlayer(position: CombatVector2): void;
-+  getPlayerPosition(): CombatVector2;
-+  getSnapshot(): HeadlessCombatRuntimeSnapshot;
-+}
-+
-+const playerHeroId = 'hero-blue-authority';
-+const targetDummyId = 'hero-red-dummy';
-+const basicAbility = {
-+  id: 'hero-basic-shot' as const,
-+  cooldownSeconds: 1.5,
-+  castRange: 8.25,
-+  damage: 34
-+};
-+
-+export const createHeadlessCombatRuntime = (): HeadlessCombatRuntime => {
-+  const arena = createArenaFromLayout();
-+  const playerStart = resolveNearestWalkableCombatPosition(
-+    arena,
-+    {
-+      x: layoutConfig.nodes.midline.position.x,
-+      z: layoutConfig.nodes.midline.position.y
-+    },
-+    layoutConfig.player.radius
-+  );
-+  const targetStart = resolveNearestWalkableCombatPosition(
-+    arena,
-+    {
-+      x: layoutConfig.nodes.midline.position.x + 7.5,
-+      z: layoutConfig.nodes.midline.position.y
-+    },
-+    layoutConfig.player.radius
-+  );
-+  const simulation = createHeadlessCombatSimulation({
-+    ability: basicAbility,
-+    arena,
-+    entities: [
-+      {
-+        id: playerHeroId,
-+        team: 'blue',
-+        position: playerStart,
-+        facing: { x: 1, z: 0 },
-+        moveSpeed: layoutConfig.player.moveSpeed,
-+        bodyRadius: layoutConfig.player.radius,
-+        maxHp: 120
-+      },
-+      {
-+        id: targetDummyId,
-+        team: 'red',
-+        position: targetStart,
-+        facing: { x: -1, z: 0 },
-+        moveSpeed: 0,
-+        bodyRadius: layoutConfig.player.radius,
-+        maxHp: 102
-+      }
-+    ]
-+  });
-+
-+  return {
-+    update(dt) {
-+      simulation.update(dt);
-+    },
-+    submitPlayerMovementIntent(direction) {
-+      simulation.submitMovementIntent(playerHeroId, {
-+        kind: 'movement',
-+        direction
-+      });
-+    },
-+    requestPlayerBasicCast() {
-+      simulation.submitCastIntent(playerHeroId, {
-+        kind: 'cast-ability',
-+        abilityId: basicAbility.id,
-+        targetEntityId: targetDummyId
-+      });
-+    },
-+    teleportPlayer(position) {
-+      const safePosition = canOccupyCombatPosition(
-+        arena,
-+        position,
-+        layoutConfig.player.radius
-+      )
-+        ? position
-+        : resolveNearestWalkableCombatPosition(
-+            arena,
-+            position,
-+            layoutConfig.player.radius
-+          );
-+
-+      simulation.forceSetEntityPosition(playerHeroId, safePosition);
-+      simulation.submitMovementIntent(playerHeroId, {
-+        kind: 'movement',
-+        direction: { x: 0, z: 0 }
-+      });
-+    },
-+    getPlayerPosition() {
-+      return cloneVector(getSnapshotEntity(simulation.getSnapshot(), playerHeroId).position);
-+    },
-+    getSnapshot() {
-+      const simulationSnapshot = simulation.getSnapshot();
-+      return {
-+        elapsedSeconds: simulationSnapshot.elapsedSeconds,
-+        fixedStepSeconds: simulationSnapshot.fixedStepSeconds,
-+        abilityId: basicAbility.id,
-+        player: toRuntimeEntitySnapshot(
-+          getSnapshotEntity(simulationSnapshot, playerHeroId)
-+        ),
-+        target: toRuntimeEntitySnapshot(
-+          getSnapshotEntity(simulationSnapshot, targetDummyId)
-+        ),
-+        lastResolvedCast: simulationSnapshot.lastResolvedCast
-+          ? { ...simulationSnapshot.lastResolvedCast }
-+          : null,
-+        lastLegalityFailureReason:
-+          simulationSnapshot.lastLegalityFailureReason
-+      };
-+    }
-+  };
-+};
-+
-+const createArenaFromLayout = (): HeadlessCombatArenaGeometry => ({
-+  walkAreas: layoutConfig.walkAreas.map<HeadlessCombatWalkArea>((area) => {
-+    const halfWidth = area.size.width * 0.5;
-+    const halfDepth = area.size.depth * 0.5;
-+    return {
-+      xMin: area.center.x - halfWidth,
-+      xMax: area.center.x + halfWidth,
-+      zMin: area.center.y - halfDepth,
-+      zMax: area.center.y + halfDepth
-+    };
-+  }),
-+  blockers: layoutConfig.blockers.map<HeadlessCombatBlocker>((blocker) => {
-+    const halfWidth = blocker.size.width * 0.5;
-+    const halfDepth = blocker.size.depth * 0.5;
-+    return {
-+      xMin: blocker.center.x - halfWidth,
-+      xMax: blocker.center.x + halfWidth,
-+      zMin: blocker.center.y - halfDepth,
-+      zMax: blocker.center.y + halfDepth
-+    };
-+  }),
-+  edgeBuffer: layoutConfig.player.edgeBuffer
-+});
-+
-+const getSnapshotEntity = (
-+  snapshot: {
-+    entities: Record<string, HeadlessHeroCombatState>;
-+  },
-+  entityId: string
-+): HeadlessHeroCombatState => {
-+  const entity = snapshot.entities[entityId];
-+  if (!entity) {
-+    throw new Error(`Missing headless combat entity "${entityId}".`);
-+  }
-+
-+  return entity;
-+};
-+
-+const toRuntimeEntitySnapshot = (
-+  entity: HeadlessHeroCombatState
-+): HeadlessCombatRuntimeEntitySnapshot => ({
-+  id: entity.id,
-+  team: entity.team,
-+  position: cloneVector(entity.position),
-+  facing: cloneVector(entity.facing),
-+  moveSpeed: entity.moveSpeed,
-+  bodyRadius: entity.bodyRadius,
-+  currentHp: entity.currentHp,
-+  maxHp: entity.maxHp,
-+  alive: entity.alive,
-+  basicAbilityCooldownRemaining: entity.basicAbilityCooldownRemaining
-+});
-+
-+const cloneVector = (vector: CombatVector2): CombatVector2 => ({
-+  x: vector.x,
-+  z: vector.z
-+});

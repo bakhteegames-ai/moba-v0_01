@@ -98,6 +98,24 @@ import {
   createDefaultSharedStructureConversionSnapshot,
   type SharedStructureConversionSnapshot
 } from './sharedStructureConversionStep';
+import {
+  advanceSharedClosureAdvancementSnapshot,
+  cloneSharedClosureAdvancementSnapshot,
+  createDefaultSharedClosureAdvancementSnapshot,
+  type SharedClosureAdvancementSnapshot
+} from './sharedClosureAdvancementHook';
+import {
+  advanceSharedDefenderResponseSnapshot,
+  cloneSharedDefenderResponseSnapshot,
+  createDefaultSharedDefenderResponseSnapshot,
+  type SharedDefenderResponseSnapshot
+} from './sharedDefenderResponseSlice';
+import {
+  advanceSharedPushReassertionSnapshot,
+  cloneSharedPushReassertionSnapshot,
+  createDefaultSharedPushReassertionSnapshot,
+  type SharedPushReassertionSnapshot
+} from './sharedPushReassertionSlice';
 
 type SegmentValues = Record<LanePressureSegment, number>;
 type TierValues = Record<StructurePressureTier, number>;
@@ -153,6 +171,9 @@ export interface PrototypeLaneStateSnapshot {
   sharedLaneConsequence: HeadlessBridgeLaneConsequenceSnapshot;
   sharedSiegeWindow: SharedSiegeWindowSnapshot;
   sharedStructureConversion: SharedStructureConversionSnapshot;
+  sharedClosureAdvancement: SharedClosureAdvancementSnapshot;
+  sharedDefenderResponse: SharedDefenderResponseSnapshot;
+  sharedPushReassertion: SharedPushReassertionSnapshot;
 }
 
 export interface PrototypeLaneOutcomeSample {
@@ -231,6 +252,12 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
   let sharedSiegeWindow = createDefaultSharedSiegeWindowSnapshot();
   let sharedStructureConversion =
     createDefaultSharedStructureConversionSnapshot();
+  let sharedClosureAdvancement =
+    createDefaultSharedClosureAdvancementSnapshot();
+  let sharedDefenderResponse =
+    createDefaultSharedDefenderResponseSnapshot();
+  let sharedPushReassertion =
+    createDefaultSharedPushReassertionSnapshot();
   const memory: LaneStateMemory = {
     elapsedSeconds: 0,
     carryoverPressureState: 1,
@@ -342,14 +369,6 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
         eventSnapshot
       );
       const resolutionSnapshot = structureResolutionMemory.getSnapshot();
-      sharedStructureConversion = advanceSharedStructureConversionSnapshot({
-        dt,
-        previous: sharedStructureConversion,
-        sharedSiegeWindow,
-        structurePressureByTier: structurePressureEstimate,
-        eventByTier: eventSnapshot.byTier,
-        resolutionByTier: resolutionSnapshot.byTier
-      });
       laneClosurePosture.update(dt, {
         resolutionByTier: {
           outer: resolutionSnapshot.byTier.outer,
@@ -362,6 +381,64 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
         consecutiveWaveCarryoverRelevance: occupancy.consecutiveWaveCarryoverRelevance
       });
       const laneClosureSnapshot = laneClosurePosture.getSnapshot();
+      sharedDefenderResponse = advanceSharedDefenderResponseSnapshot({
+        dt,
+        previous: sharedDefenderResponse,
+        sharedSiegeWindow,
+        structureConversion: sharedStructureConversion,
+        laneClosure: laneClosureSnapshot
+      });
+      sharedPushReassertion = advanceSharedPushReassertionSnapshot({
+        dt,
+        previous: sharedPushReassertion,
+        sharedSiegeWindow,
+        structureConversion: sharedStructureConversion,
+        defenderResponse: sharedDefenderResponse,
+        laneClosure: laneClosureSnapshot
+      });
+      const effectiveStructureSuppression = clamp(
+        sharedDefenderResponse.structureConversionSuppression -
+          sharedPushReassertion.structureSuppressionRecovery,
+        0,
+        0.2
+      );
+      const effectiveClosureSuppression = clamp(
+        sharedDefenderResponse.closureAdvancementSuppression -
+          sharedPushReassertion.closureSuppressionRecovery,
+        0,
+        0.35
+      );
+      sharedStructureConversion = advanceSharedStructureConversionSnapshot({
+        dt,
+        previous: sharedStructureConversion,
+        sharedSiegeWindow,
+        structurePressureByTier: structurePressureEstimate,
+        eventByTier: eventSnapshot.byTier,
+        resolutionByTier: resolutionSnapshot.byTier,
+        progressSuppression: effectiveStructureSuppression
+      });
+      sharedClosureAdvancement = advanceSharedClosureAdvancementSnapshot({
+        dt,
+        previous: sharedClosureAdvancement,
+        structureConversion: sharedStructureConversion,
+        laneClosure: laneClosureSnapshot,
+        readinessSuppression: effectiveClosureSuppression
+      });
+      const closureCarryoverPressureState = clamp(
+        memory.carryoverPressureState +
+          sharedClosureAdvancement.closureAdvancementValue * 0.03 -
+          effectiveClosureSuppression * 0.02,
+        carryoverStateMin,
+        carryoverStateMax
+      );
+      const closureCarryoverRelevance = clamp(
+        occupancy.consecutiveWaveCarryoverRelevance +
+          sharedClosureAdvancement.readinessLevel * 0.08 +
+          (sharedClosureAdvancement.lastResolvedClosureStep !== 'none' ? 0.04 : 0) -
+          effectiveClosureSuppression * 0.08,
+        0,
+        1
+      );
       closurePacingInterpreter.update(dt, {
         laneClosure: laneClosureSnapshot,
         resolutionByTier: {
@@ -372,8 +449,8 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
         structurePressureByTier: structurePressureEstimate,
         structureContactByTier: occupancy.structureContactByTier,
         lanePressureBySegment: lanePressureEstimate,
-        carryoverPressureState: memory.carryoverPressureState,
-        consecutiveWaveCarryoverRelevance: occupancy.consecutiveWaveCarryoverRelevance
+        carryoverPressureState: closureCarryoverPressureState,
+        consecutiveWaveCarryoverRelevance: closureCarryoverRelevance
       });
       const closurePacingSnapshot = closurePacingInterpreter.getSnapshot();
       closurePacingWatch.update(dt, {
@@ -484,7 +561,10 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
         calibrationOperatorLoopClosureSnapshot,
         sharedLaneConsequence,
         sharedSiegeWindow,
-        sharedStructureConversion
+        sharedStructureConversion,
+        sharedClosureAdvancement,
+        sharedDefenderResponse,
+        sharedPushReassertion
       );
     },
     recordOutcome(sample) {
@@ -681,7 +761,10 @@ const computeSnapshot = (
   calibrationOperatorLoopClosureSnapshot: CalibrationOperatorLoopClosureSnapshot,
   sharedLaneConsequenceSnapshot: HeadlessBridgeLaneConsequenceSnapshot,
   sharedSiegeWindowSnapshot: SharedSiegeWindowSnapshot,
-  sharedStructureConversionSnapshot: SharedStructureConversionSnapshot
+  sharedStructureConversionSnapshot: SharedStructureConversionSnapshot,
+  sharedClosureAdvancementSnapshot: SharedClosureAdvancementSnapshot,
+  sharedDefenderResponseSnapshot: SharedDefenderResponseSnapshot,
+  sharedPushReassertionSnapshot: SharedPushReassertionSnapshot
 ): PrototypeLaneStateSnapshot => {
   const sharedLaneModifier =
     buildHeadlessBridgeLaneModifier(sharedLaneConsequenceSnapshot);
@@ -970,6 +1053,15 @@ const computeSnapshot = (
     ),
     sharedStructureConversion: cloneSharedStructureConversionSnapshot(
       sharedStructureConversionSnapshot
+    ),
+    sharedClosureAdvancement: cloneSharedClosureAdvancementSnapshot(
+      sharedClosureAdvancementSnapshot
+    ),
+    sharedDefenderResponse: cloneSharedDefenderResponseSnapshot(
+      sharedDefenderResponseSnapshot
+    ),
+    sharedPushReassertion: cloneSharedPushReassertionSnapshot(
+      sharedPushReassertionSnapshot
     )
   };
 };

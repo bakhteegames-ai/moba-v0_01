@@ -236,6 +236,112 @@ debugWindow.render_game_to_text = (): string => {
         summary:
           liveInteractionSnapshot.signalProvider.sharedStructureConversion.summary
       },
+      sharedClosureAdvancement: {
+        active:
+          liveInteractionSnapshot.signalProvider.sharedClosureAdvancement
+            .closureAdvancementActive,
+        value: round(
+          liveInteractionSnapshot.signalProvider.sharedClosureAdvancement
+            .closureAdvancementValue
+        ),
+        readinessLevel: round(
+          liveInteractionSnapshot.signalProvider.sharedClosureAdvancement
+            .readinessLevel
+        ),
+        eligible:
+          liveInteractionSnapshot.signalProvider.sharedClosureAdvancement
+            .readinessEligible,
+        sourceSegment:
+          liveInteractionSnapshot.signalProvider.sharedClosureAdvancement
+            .sourceSegment,
+        sourceTier:
+          liveInteractionSnapshot.signalProvider.sharedClosureAdvancement
+            .sourceTier,
+        triggerReason:
+          liveInteractionSnapshot.signalProvider.sharedClosureAdvancement
+            .triggerReason,
+        lastResolvedClosureStep:
+          liveInteractionSnapshot.signalProvider.sharedClosureAdvancement
+            .lastResolvedClosureStep,
+        summary:
+          liveInteractionSnapshot.signalProvider.sharedClosureAdvancement.summary
+      },
+      sharedDefenderResponse: {
+        active:
+          liveInteractionSnapshot.signalProvider.sharedDefenderResponse
+            .responseActive,
+        eligible:
+          liveInteractionSnapshot.signalProvider.sharedDefenderResponse
+            .responseEligible,
+        cooldownRemaining: round(
+          liveInteractionSnapshot.signalProvider.sharedDefenderResponse
+            .responseCooldownRemaining
+        ),
+        remaining: round(
+          liveInteractionSnapshot.signalProvider.sharedDefenderResponse
+            .responseRemainingSeconds
+        ),
+        sourceSegment:
+          liveInteractionSnapshot.signalProvider.sharedDefenderResponse
+            .sourceSegment,
+        sourceTier:
+          liveInteractionSnapshot.signalProvider.sharedDefenderResponse
+            .sourceTier,
+        structureSuppression: round(
+          liveInteractionSnapshot.signalProvider.sharedDefenderResponse
+            .structureConversionSuppression
+        ),
+        closureSuppression: round(
+          liveInteractionSnapshot.signalProvider.sharedDefenderResponse
+            .closureAdvancementSuppression
+        ),
+        triggerReason:
+          liveInteractionSnapshot.signalProvider.sharedDefenderResponse
+            .triggerReason,
+        lastResolvedResponseAction:
+          liveInteractionSnapshot.signalProvider.sharedDefenderResponse
+            .lastResolvedResponseAction,
+        summary:
+          liveInteractionSnapshot.signalProvider.sharedDefenderResponse.summary
+      },
+      sharedPushReassertion: {
+        active:
+          liveInteractionSnapshot.signalProvider.sharedPushReassertion
+            .recoveryActive,
+        eligible:
+          liveInteractionSnapshot.signalProvider.sharedPushReassertion
+            .recoveryEligible,
+        cooldownRemaining: round(
+          liveInteractionSnapshot.signalProvider.sharedPushReassertion
+            .recoveryCooldownRemaining
+        ),
+        remaining: round(
+          liveInteractionSnapshot.signalProvider.sharedPushReassertion
+            .recoveryRemainingSeconds
+        ),
+        sourceSegment:
+          liveInteractionSnapshot.signalProvider.sharedPushReassertion
+            .sourceSegment,
+        sourceTier:
+          liveInteractionSnapshot.signalProvider.sharedPushReassertion
+            .sourceTier,
+        structureRecovery: round(
+          liveInteractionSnapshot.signalProvider.sharedPushReassertion
+            .structureSuppressionRecovery
+        ),
+        closureRecovery: round(
+          liveInteractionSnapshot.signalProvider.sharedPushReassertion
+            .closureSuppressionRecovery
+        ),
+        triggerReason:
+          liveInteractionSnapshot.signalProvider.sharedPushReassertion
+            .triggerReason,
+        lastResolvedRecoveryAction:
+          liveInteractionSnapshot.signalProvider.sharedPushReassertion
+            .lastResolvedRecoveryAction,
+        summary:
+          liveInteractionSnapshot.signalProvider.sharedPushReassertion.summary
+      },
       determinismProof: {
         passed: snapshot.laneDeterminismProof.passed,
         signature: snapshot.laneDeterminismProof.signature,

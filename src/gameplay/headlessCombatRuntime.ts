@@ -75,6 +75,9 @@ const basicAbility = {
   damage: 34
 };
 const fixedStepSeconds = 1 / 60;
+const deterministicApproachLeadSeconds = 7;
+const deterministicCastConfirmSeconds = 0.1;
+const deterministicContestSampleSeconds = 0.25;
 
 export const createHeadlessCombatRuntime = (): HeadlessCombatRuntime => {
   const arena = createArenaFromLayout();
@@ -274,7 +277,7 @@ const runLaneDeterminismProof = (
     passed,
     signature: firstSignature,
     summary: passed
-      ? 'Repeated fixed-step blocker-clear script produced the same bounded shared structure-conversion lifecycle.'
+      ? 'Repeated fixed-step blocker-clear script produced the same bounded mirrored contest and recovery exchange.'
       : 'Fixed-step blocker-clear script diverged between identical runs.'
   };
 };
@@ -329,6 +332,12 @@ const runDeterministicBridgeScenario = (
   proofLaneStateLoop.setSharedLaneConsequence(
     adaptHeadlessCombatLaneBridgeToLaneConsequence(proofBridge.getSnapshot())
   );
+  advanceDeterministicScenario(
+    proofSimulation,
+    proofBridge,
+    proofLaneStateLoop,
+    Math.round(deterministicApproachLeadSeconds / fixedStepSeconds)
+  );
 
   for (let hitIndex = 0; hitIndex < 3; hitIndex += 1) {
     proofSimulation.submitCastIntent(playerHeroId, {
@@ -340,7 +349,7 @@ const runDeterministicBridgeScenario = (
       proofSimulation,
       proofBridge,
       proofLaneStateLoop,
-      1
+      Math.round(deterministicCastConfirmSeconds / fixedStepSeconds)
     );
     if (hitIndex < 2) {
       advanceDeterministicScenario(
@@ -356,7 +365,7 @@ const runDeterministicBridgeScenario = (
     proofSimulation,
     proofBridge,
     proofLaneStateLoop,
-    Math.round(0.75 / fixedStepSeconds)
+    Math.round(deterministicContestSampleSeconds / fixedStepSeconds)
   );
 
   const simulationSnapshot = proofSimulation.getSnapshot();
@@ -366,8 +375,14 @@ const runDeterministicBridgeScenario = (
   const sharedLaneModifier =
     buildHeadlessBridgeLaneModifier(sharedLaneConsequence);
   const sharedLaneSnapshot = proofLaneStateLoop.getSnapshot();
+  const resolvedDefenderResponse =
+    sharedLaneSnapshot.sharedDefenderResponse;
+  const resolvedPushReassertion =
+    sharedLaneSnapshot.sharedPushReassertion;
   const resolvedStructureConversion =
     sharedLaneSnapshot.sharedStructureConversion;
+  const resolvedClosureAdvancement =
+    sharedLaneSnapshot.sharedClosureAdvancement;
   advanceDeterministicScenario(
     proofSimulation,
     proofBridge,
@@ -404,18 +419,70 @@ const runDeterministicBridgeScenario = (
     sharedLaneSnapshot.sharedSiegeWindow.triggerReason,
     round(sharedLaneSnapshot.sharedSiegeWindow.pressureSupportLevel),
     round(sharedLaneSnapshot.sharedSiegeWindow.occupancySupportLevel),
+    resolvedDefenderResponse.responseActive ? 'active' : 'idle',
+    resolvedDefenderResponse.responseEligible ? 'eligible' : 'ineligible',
+    round(resolvedDefenderResponse.structureConversionSuppression),
+    round(resolvedDefenderResponse.closureAdvancementSuppression),
+    resolvedDefenderResponse.triggerReason,
+    resolvedDefenderResponse.lastResolvedResponseAction,
+    resolvedPushReassertion.recoveryActive ? 'active' : 'idle',
+    resolvedPushReassertion.recoveryEligible ? 'eligible' : 'ineligible',
+    round(resolvedPushReassertion.structureSuppressionRecovery),
+    round(resolvedPushReassertion.closureSuppressionRecovery),
+    resolvedPushReassertion.triggerReason,
+    resolvedPushReassertion.lastResolvedRecoveryAction,
     resolvedStructureConversion.conversionActive ? 'active' : 'idle',
     round(resolvedStructureConversion.conversionProgress),
     round(resolvedStructureConversion.conversionThreshold),
     resolvedStructureConversion.conversionEligible ? 'eligible' : 'ineligible',
     resolvedStructureConversion.triggerReason,
     resolvedStructureConversion.lastResolvedStructureStep,
+    resolvedClosureAdvancement.closureAdvancementActive ? 'active' : 'idle',
+    round(resolvedClosureAdvancement.closureAdvancementValue),
+    round(resolvedClosureAdvancement.readinessLevel),
+    resolvedClosureAdvancement.readinessEligible ? 'eligible' : 'ineligible',
+    resolvedClosureAdvancement.triggerReason,
+    resolvedClosureAdvancement.lastResolvedClosureStep,
     expiredLaneSnapshot.sharedStructureConversion.conversionActive
       ? 'active'
       : 'idle',
     round(expiredLaneSnapshot.sharedStructureConversion.conversionProgress),
     expiredLaneSnapshot.sharedStructureConversion.triggerReason,
-    expiredLaneSnapshot.sharedStructureConversion.lastResolvedStructureStep
+    expiredLaneSnapshot.sharedStructureConversion.lastResolvedStructureStep,
+    expiredLaneSnapshot.sharedDefenderResponse.responseActive
+      ? 'active'
+      : 'idle',
+    expiredLaneSnapshot.sharedDefenderResponse.responseEligible
+      ? 'eligible'
+      : 'ineligible',
+    round(
+      expiredLaneSnapshot.sharedDefenderResponse.structureConversionSuppression
+    ),
+    round(
+      expiredLaneSnapshot.sharedDefenderResponse.closureAdvancementSuppression
+    ),
+    expiredLaneSnapshot.sharedDefenderResponse.triggerReason,
+    expiredLaneSnapshot.sharedDefenderResponse.lastResolvedResponseAction,
+    expiredLaneSnapshot.sharedPushReassertion.recoveryActive
+      ? 'active'
+      : 'idle',
+    expiredLaneSnapshot.sharedPushReassertion.recoveryEligible
+      ? 'eligible'
+      : 'ineligible',
+    round(
+      expiredLaneSnapshot.sharedPushReassertion.structureSuppressionRecovery
+    ),
+    round(
+      expiredLaneSnapshot.sharedPushReassertion.closureSuppressionRecovery
+    ),
+    expiredLaneSnapshot.sharedPushReassertion.triggerReason,
+    expiredLaneSnapshot.sharedPushReassertion.lastResolvedRecoveryAction,
+    expiredLaneSnapshot.sharedClosureAdvancement.closureAdvancementActive
+      ? 'active'
+      : 'idle',
+    round(expiredLaneSnapshot.sharedClosureAdvancement.closureAdvancementValue),
+    expiredLaneSnapshot.sharedClosureAdvancement.triggerReason,
+    expiredLaneSnapshot.sharedClosureAdvancement.lastResolvedClosureStep
   ].join('|');
 };
 
