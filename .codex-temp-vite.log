@@ -3,6 +3,10 @@
 > vite --host 127.0.0.1 --port 4179
 
 
-  [32m[1mVITE[22m v8.0.1[39m  [2mready in [0m[1m131[22m[2m[0m ms[22m
+  [32m[1mVITE[22m v8.0.1[39m  [2mready in [0m[1m120[22m[2m[0m ms[22m
 
   [32m➜[39m  [1mLocal[22m:   [36mhttp://127.0.0.1:[1m4179[22m/[39m
+[2m19:38:15[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2msrc/presentation/authoritativePresentationShell.ts[22m
+[2m19:38:43[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2msrc/presentation/authoritativePresentationShell.ts[22m
+[2m20:36:07[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2msrc/main.ts[22m
+[2m20:36:07[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css[22m

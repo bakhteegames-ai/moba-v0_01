@@ -29,6 +29,142 @@ body,
   pointer-events: none;
 }
 
+#player-hud-root {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.player-hud {
+  position: absolute;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 360px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 14px;
+  background: rgba(8, 11, 15, 0.78);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
+}
+
+.player-hud-row {
+  display: flex;
+  gap: 8px;
+}
+
+.player-hud-chip,
+.player-hud-meter {
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.player-hud-chip {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.player-hud-chip[data-tone="ready"] {
+  border-color: rgba(93, 170, 114, 0.4);
+  background: rgba(93, 170, 114, 0.12);
+}
+
+.player-hud-chip[data-tone="blocked"] {
+  border-color: rgba(217, 159, 92, 0.42);
+  background: rgba(217, 159, 92, 0.12);
+}
+
+.player-hud-chip[data-tone="active"] {
+  border-color: rgba(113, 151, 219, 0.42);
+  background: rgba(113, 151, 219, 0.12);
+}
+
+.player-hud-chip[data-tone="contest"] {
+  border-color: rgba(214, 96, 89, 0.46);
+  background: rgba(214, 96, 89, 0.16);
+}
+
+.player-hud-chip[data-tone="recovery"] {
+  border-color: rgba(111, 167, 241, 0.44);
+  background: rgba(111, 167, 241, 0.16);
+}
+
+.player-hud-chip[data-tone="resolved"] {
+  border-color: rgba(188, 204, 125, 0.36);
+  background: rgba(188, 204, 125, 0.12);
+}
+
+.player-hud-chip[data-tone="idle"] {
+  opacity: 0.78;
+}
+
+.player-hud-label,
+.player-hud-value {
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.player-hud-label {
+  color: #a8b4c6;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.player-hud-value {
+  color: #f4f7fb;
+  font-weight: 700;
+  text-align: right;
+}
+
+.player-hud-meter-column {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.player-hud-meter {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.player-hud-meter[data-active="true"] {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.player-hud-meter-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.player-hud-meter-track {
+  overflow: hidden;
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.player-hud-meter-fill {
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #7fb1f4 0%, #f3dfa2 55%, #e3b25d 100%);
+  transform-origin: left center;
+  transform: scaleX(0);
+}
+
 .debug-panel {
   position: absolute;
   top: 16px;

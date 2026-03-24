@@ -4,6 +4,8 @@ import { layoutConfig } from './config/layout';
 import { createDebugSystem } from './debug/debugBuilder';
 import { createHeadlessCombatRuntime } from './gameplay/headlessCombatRuntime';
 import { createPlayerTestController } from './player/playerTestController';
+import { createAuthoritativePresentationShell } from './presentation/authoritativePresentationShell';
+import { createPlayerFacingHud } from './presentation/playerFacingHud';
 import { buildGrayboxScene } from './scene/buildGrayboxScene';
 import { createLiveInteractionValidator } from './validation/liveInteractionValidator';
 import { createTempoHarness } from './validation/tempoHarness';
@@ -31,6 +33,8 @@ const playerController = createPlayerTestController(
   debugSystem,
   headlessCombat
 );
+const presentationShell = createAuthoritativePresentationShell(registry);
+const playerFacingHud = createPlayerFacingHud();
 const tempoHarness = createTempoHarness();
 const wavePressureValidator = createWavePressureValidator(registry);
 
@@ -41,6 +45,14 @@ const runFrame = (dt: number): void => {
   tempoHarness.update(dt);
   wavePressureValidator.update(dt);
   const liveInteractionSnapshot = liveInteractionValidator.getDebugState();
+  presentationShell.update(dt, {
+    combat: headlessCombatSnapshot,
+    signals: liveInteractionSnapshot.signalProvider
+  });
+  playerFacingHud.update(dt, {
+    combat: headlessCombatSnapshot,
+    signals: liveInteractionSnapshot.signalProvider
+  });
   debugSystem.update({
     playerPosition: playerController.getPlayerPosition(),
     camera: playerController.getActiveCamera(),
@@ -74,6 +86,7 @@ debugWindow.advanceTime = (ms: number): void => {
 debugWindow.render_game_to_text = (): string => {
   const snapshot = headlessCombat.getSnapshot();
   const liveInteractionSnapshot = liveInteractionValidator.getDebugState();
+  const presentationSnapshot = presentationShell.getDebugState();
   return JSON.stringify({
     coordinateSystem: {
       origin: layoutConfig.coordinateModel.origin,
@@ -346,6 +359,17 @@ debugWindow.render_game_to_text = (): string => {
         passed: snapshot.laneDeterminismProof.passed,
         signature: snapshot.laneDeterminismProof.signature,
         summary: snapshot.laneDeterminismProof.summary
+      },
+      presentation: {
+        castPulseActive: presentationSnapshot.castPulseActive,
+        impactPulseActive: presentationSnapshot.impactPulseActive,
+        defenderCueActive: presentationSnapshot.defenderCueActive,
+        pushCueActive: presentationSnapshot.pushCueActive,
+        sourceTier: presentationSnapshot.sourceTier,
+        sourceSegment: presentationSnapshot.sourceSegment,
+        siegeLevel: round(presentationSnapshot.siegeLevel),
+        structureLevel: round(presentationSnapshot.structureLevel),
+        closureLevel: round(presentationSnapshot.closureLevel)
       }
     }
   });
