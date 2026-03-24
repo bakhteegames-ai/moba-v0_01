@@ -88,8 +88,11 @@ export const createPlayerFacingHud = (): PlayerFacingHud => {
   const statusRow = createRow();
   const meterColumn = document.createElement('div');
   meterColumn.className = 'player-hud-meter-column';
+  const abilityColumn = document.createElement('div');
+  abilityColumn.className = 'player-hud-chip-column';
 
   const playerHealthStrip = createStrip('player-hud-player-health-fill');
+  const abilityCooldownStrip = createStrip('player-hud-ability-cooldown-fill');
   const combatChip = createChip('Combat');
   const nextChip = createChip('Next');
   const abilityChip = createChip('Ability');
@@ -103,9 +106,10 @@ export const createPlayerFacingHud = (): PlayerFacingHud => {
   const closureMeter = createMeter('Closure');
 
   vitalsRow.append(playerHealthStrip.root);
+  abilityColumn.append(abilityChip.root, abilityCooldownStrip.root);
   focusRow.append(combatChip.root, nextChip.root);
   topRow.append(
-    abilityChip.root,
+    abilityColumn,
     castChip.root,
     lastCastChip.root,
     targetChip.root
@@ -138,6 +142,14 @@ export const createPlayerFacingHud = (): PlayerFacingHud => {
       updateChip(
         abilityChip,
         deriveAbilityStatus(input.combat.player.basicAbilityCooldownRemaining)
+      );
+      updateStrip(
+        abilityCooldownStrip,
+        deriveAbilityCooldownStripState(
+          input.combat.player.alive,
+          input.combat.player.basicAbilityCooldownRemaining,
+          input.combat.lastResolvedCast
+        )
       );
       updateChip(
         castChip,
@@ -301,6 +313,37 @@ const derivePlayerHealthStripState = (
   visible: alive,
   fraction: alive && maxHp > 0 ? clamp(currentHp / maxHp, 0, 1) : 0
 });
+
+const deriveAbilityCooldownStripState = (
+  alive: boolean,
+  cooldownRemaining: number,
+  lastResolvedCast: HeadlessCombatRuntimeSnapshot['lastResolvedCast']
+): HudStripState => {
+  if (!alive) {
+    return {
+      visible: false,
+      fraction: 0
+    };
+  }
+
+  if (cooldownRemaining <= 0) {
+    return {
+      visible: true,
+      fraction: 1
+    };
+  }
+
+  const cooldownWindow =
+    lastResolvedCast?.success === true ? lastResolvedCast.cooldownRemaining : 0;
+
+  return {
+    visible: true,
+    fraction:
+      cooldownWindow > 0
+        ? clamp(1 - cooldownRemaining / cooldownWindow, 0, 1)
+        : 0
+  };
+};
 
 const deriveAbilityStatus = (cooldownRemaining: number): HudStatus =>
   cooldownRemaining > 0
