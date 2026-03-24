@@ -147,8 +147,7 @@ export const createPlayerFacingHud = (): PlayerFacingHud => {
         abilityCooldownStrip,
         deriveAbilityCooldownStripState(
           input.combat.player.alive,
-          input.combat.player.basicAbilityCooldownRemaining,
-          input.combat.lastResolvedCast
+          input.combat.player.basicAbilityCooldownRemaining
         )
       );
       updateChip(
@@ -316,8 +315,7 @@ const derivePlayerHealthStripState = (
 
 const deriveAbilityCooldownStripState = (
   alive: boolean,
-  cooldownRemaining: number,
-  lastResolvedCast: HeadlessCombatRuntimeSnapshot['lastResolvedCast']
+  cooldownRemaining: number
 ): HudStripState => {
   if (!alive) {
     return {
@@ -333,15 +331,9 @@ const deriveAbilityCooldownStripState = (
     };
   }
 
-  const cooldownWindow =
-    lastResolvedCast?.success === true ? lastResolvedCast.cooldownRemaining : 0;
-
   return {
     visible: true,
-    fraction:
-      cooldownWindow > 0
-        ? clamp(1 - cooldownRemaining / cooldownWindow, 0, 1)
-        : 0
+    fraction: 0
   };
 };
 
