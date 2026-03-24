@@ -156,3 +156,39 @@ Original prompt: HEADLESS MIRRORED PUSH-CONTEST EXCHANGE STEP. Add the smallest 
 - TODO if continuing:
 - If later deepening the exchange, keep it as direct shared-input neutralization rather than introducing a central contest orchestrator.
 - If later moving toward real mirrored PvP pressure, let both sides keep adding bounded answers inside the same shared lane/structure/closure path instead of splitting into separate contest systems.
+
+Original prompt: TECH DEBT & CONFIG EXTRACTION PASS. Freeze features and stabilize the existing headless macro-core by centralizing active tuning values, replacing raw-X lane advancement semantics with normalized route progress, and reducing local wiring fragility without adding new gameplay branches, new macro systems, PlayCanvas authority, or event-bus/orchestration sprawl.
+
+- Added `src/gameplay/gameplayTuningConfig.ts` as the single readable tuning source for the active headless macro-core path:
+- combat lane bridge clamp/multiplier values
+- shared bridge lane modifier weights
+- siege window thresholds/duration weights
+- structure conversion thresholds/gain/decay
+- closure advancement thresholds/gain/decay
+- defender response timings/suppressions
+- blue reassertion timings/recovery values
+- prototype lane closure carryover support coefficients
+- Added `src/combat/headlessLaneRouteProgress.ts` as a deterministic polyline projection helper returning normalized lane route progress in `[0, 1]`.
+- Refactored `headlessCombatLaneBridge` to use `routeProgress` plus normalized progress thresholds instead of raw `position.x` as the semantic source of lane advancement.
+- Refactored `headlessCombatRuntime` lane-bridge config creation to derive thresholds from the canonical lane node path:
+- blueCore -> blueInnerTower -> blueOuterTower -> midline -> redOuterTower -> redInnerTower -> redCore
+- Kept current straight-lane behavior materially equivalent by deriving thresholds from the same tower/core landmarks along that path.
+- Reduced local runtime fragility in `prototypeLaneStateLoop` with small direct helpers for:
+- effective contest suppression after blue recovery
+- closure carryover support injection
+- Build status: `npm run build` passes.
+- Browser/runtime proof via Playwright client + `render_game_to_text`:
+- blocker clear still opens the shared siege window
+- defender contest and blue push reassertion still both fire
+- structure conversion remains bounded and decays under contest
+- closure readiness remains bounded and decays
+- deterministic proof remains `passed = true`
+- Example post-refactor state from client run:
+- `sharedSiegeWindow.active = true`
+- `sharedDefenderResponse.active = true`
+- `sharedPushReassertion.active = true`
+- `sharedStructureConversion.progress = 0.13 / 0.26`
+- `sharedClosureAdvancement.value = 0.05`
+- TODO if continuing:
+- Keep future stabilization work on the same direct input path; do not turn the new tuning module into a generic config framework.
+- If the lane later bends, extend the lane route point source, not the bridge semantics; the projection seam is already in place.

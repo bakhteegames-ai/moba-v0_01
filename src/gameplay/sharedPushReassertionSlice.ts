@@ -14,6 +14,7 @@ import {
 import {
   type SharedDefenderResponseSnapshot
 } from './sharedDefenderResponseSlice';
+import { gameplayTuningConfig } from './gameplayTuningConfig';
 
 export type SharedPushReassertionAction =
   | 'none'
@@ -53,16 +54,10 @@ export interface SharedPushReassertionInput {
 }
 
 const responderId = 'blue-push-reassertion-proxy';
-const reassertionPulseDurationSeconds = 0.95;
-const reassertionPulseCooldownSeconds = 2.7;
-const minimumPressureSupport = 0.48;
-const minimumOccupancySupport = 0.4;
-const minimumStructuralCarryover = 0.28;
-const minimumContestableProgress = 0.03;
-
 export const advanceSharedPushReassertionSnapshot = (
   input: SharedPushReassertionInput
 ): SharedPushReassertionSnapshot => {
+  const tuning = gameplayTuningConfig.sharedPushReassertion;
   const dt = Math.max(0, input.dt);
   const sourceSegment = input.sharedSiegeWindow.sourceSegment;
   const sourceTier = input.sharedSiegeWindow.sourceTier;
@@ -80,14 +75,17 @@ export const advanceSharedPushReassertionSnapshot = (
     (input.structureConversion.conversionActive ||
       input.structureConversion.conversionEligible ||
       input.structureConversion.conversionProgress >=
-        minimumContestableProgress ||
-      input.laneClosure.structuralCarryoverLevel >= minimumStructuralCarryover) &&
-    (input.sharedSiegeWindow.pressureSupportLevel >= minimumPressureSupport ||
-      input.sharedSiegeWindow.occupancySupportLevel >= minimumOccupancySupport);
+        tuning.minimumContestableProgress ||
+      input.laneClosure.structuralCarryoverLevel >=
+        tuning.minimumStructuralCarryover) &&
+    (input.sharedSiegeWindow.pressureSupportLevel >=
+      tuning.minimumPressureSupport ||
+      input.sharedSiegeWindow.occupancySupportLevel >=
+        tuning.minimumOccupancySupport);
 
   if (input.previous.recoveryActive && remainingSeconds > 0) {
     const intensity = clamp(
-      remainingSeconds / reassertionPulseDurationSeconds,
+      remainingSeconds / tuning.pulseDurationSeconds,
       0,
       1
     );
@@ -99,8 +97,10 @@ export const advanceSharedPushReassertionSnapshot = (
       remainingSeconds,
       sourceSegment,
       sourceTier,
-      0.04 + intensity * 0.04,
-      0.08 + intensity * 0.05,
+      tuning.activeStructureRecoveryBase +
+        intensity * tuning.activeStructureRecoveryIntensity,
+      tuning.activeClosureRecoveryBase +
+        intensity * tuning.activeClosureRecoveryIntensity,
       input.previous.lastResolvedRecoveryAction,
       'push-reassertion-pulse-fired',
       'Blue-side push reassertion pulse is partially recovering the contested window.'
@@ -148,12 +148,12 @@ export const advanceSharedPushReassertionSnapshot = (
       true,
       true,
       'push-reassertion-pulse-fired',
-      reassertionPulseCooldownSeconds,
-      reassertionPulseDurationSeconds,
+      tuning.pulseCooldownSeconds,
+      tuning.pulseDurationSeconds,
       sourceSegment,
       sourceTier,
-      0.08,
-      0.13,
+      tuning.firedStructureRecovery,
+      tuning.firedClosureRecovery,
       'push-reassertion-pulse-fired',
       'push-reassertion-pulse-fired',
       'Blue-side push reassertion pulse answered the defender contest.'
@@ -233,8 +233,20 @@ const buildSnapshot = (
   recoveryRemainingSeconds: Math.max(0, recoveryRemainingSeconds),
   sourceSegment,
   sourceTier,
-  structureSuppressionRecovery: clamp(structureSuppressionRecovery, 0, 0.12),
-  closureSuppressionRecovery: clamp(closureSuppressionRecovery, 0, 0.18),
+  structureSuppressionRecovery: clamp(
+    structureSuppressionRecovery,
+    gameplayTuningConfig.sharedPushReassertion
+      .structureSuppressionRecoveryClamp.min,
+    gameplayTuningConfig.sharedPushReassertion
+      .structureSuppressionRecoveryClamp.max
+  ),
+  closureSuppressionRecovery: clamp(
+    closureSuppressionRecovery,
+    gameplayTuningConfig.sharedPushReassertion
+      .closureSuppressionRecoveryClamp.min,
+    gameplayTuningConfig.sharedPushReassertion
+      .closureSuppressionRecoveryClamp.max
+  ),
   lastResolvedRecoveryAction,
   triggerReason,
   summary

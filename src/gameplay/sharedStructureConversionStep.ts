@@ -11,6 +11,7 @@ import {
 import {
   type SharedSiegeWindowSnapshot
 } from './sharedSiegeWindowConversion';
+import { gameplayTuningConfig } from './gameplayTuningConfig';
 
 type TierValues = Record<StructurePressureTier, number>;
 type TierEvents = Record<StructurePressureTier, StructurePressureTierEventState>;
@@ -51,14 +52,10 @@ export interface SharedStructureConversionStepInput {
   progressSuppression?: number;
 }
 
-const conversionThreshold = 0.26;
-const minimumPressureSupport = 0.5;
-const minimumOccupancySupport = 0.24;
-const minimumStructurePressure = 0.46;
-
 export const advanceSharedStructureConversionSnapshot = (
   input: SharedStructureConversionStepInput
 ): SharedStructureConversionSnapshot => {
+  const tuning = gameplayTuningConfig.sharedStructureConversion;
   const dt = Math.max(0, input.dt);
   const sourceSegment = input.sharedSiegeWindow.sourceSegment;
   const sourceTier = input.sharedSiegeWindow.sourceTier;
@@ -66,8 +63,10 @@ export const advanceSharedStructureConversionSnapshot = (
   const tierResolution = input.resolutionByTier[sourceTier];
   const structurePressure = clamp(input.structurePressureByTier[sourceTier], 0, 1);
   const supportSufficient =
-    input.sharedSiegeWindow.pressureSupportLevel >= minimumPressureSupport &&
-    input.sharedSiegeWindow.occupancySupportLevel >= minimumOccupancySupport;
+    input.sharedSiegeWindow.pressureSupportLevel >=
+      tuning.minimumPressureSupport &&
+    input.sharedSiegeWindow.occupancySupportLevel >=
+      tuning.minimumOccupancySupport;
   const threatStageEligible =
     tierResolution.threatStage === 'pressured' ||
     tierResolution.threatStage === 'softened' ||
@@ -76,23 +75,27 @@ export const advanceSharedStructureConversionSnapshot = (
     tierEvent.active?.qualifiedSiegeAttempt === true ||
     tierEvent.active?.boundedClosureState === 'bounded' ||
     tierEvent.active?.boundedClosureState === 'forming';
-  const progressSuppression = clamp(input.progressSuppression ?? 0, 0, 0.2);
+  const progressSuppression = clamp(
+    input.progressSuppression ?? 0,
+    tuning.progressSuppressionClamp.min,
+    tuning.progressSuppressionClamp.max
+  );
   const conversionEligible =
     input.sharedSiegeWindow.siegeWindowActive &&
     supportSufficient &&
-    (structurePressure >= minimumStructurePressure ||
+    (structurePressure >= tuning.minimumStructurePressure ||
       eventEligible ||
       threatStageEligible);
 
   if (
     input.previous.sourceTier === sourceTier &&
-    input.previous.conversionProgress >= conversionThreshold &&
+    input.previous.conversionProgress >= tuning.progressThreshold &&
     input.previous.lastResolvedStructureStep !== 'none'
   ) {
     if (input.sharedSiegeWindow.siegeWindowActive) {
       return buildSnapshot(
         false,
-        conversionThreshold,
+        tuning.progressThreshold,
         conversionEligible,
         sourceSegment,
         sourceTier,
@@ -124,28 +127,30 @@ export const advanceSharedStructureConversionSnapshot = (
 
   if (conversionEligible) {
     const gainRate = clamp(
-      0.14 +
-        input.sharedSiegeWindow.pressureSupportLevel * 0.11 +
-        input.sharedSiegeWindow.occupancySupportLevel * 0.08 +
-        structurePressure * 0.06 +
-        (eventEligible ? 0.05 : 0) -
+      tuning.gainRateBase +
+        input.sharedSiegeWindow.pressureSupportLevel *
+          tuning.gainRatePressureSupportMultiplier +
+        input.sharedSiegeWindow.occupancySupportLevel *
+          tuning.gainRateOccupancySupportMultiplier +
+        structurePressure * tuning.gainRateStructurePressureMultiplier +
+        (eventEligible ? tuning.gainRateEventEligibleBonus : 0) -
         progressSuppression,
-      0.04,
-      0.38
+      tuning.gainRateClamp.min,
+      tuning.gainRateClamp.max
     );
     const progressedValue = clamp(
       input.previous.conversionProgress + dt * gainRate,
       0,
-      conversionThreshold
+      tuning.progressThreshold
     );
 
     if (
-      input.previous.conversionProgress < conversionThreshold &&
-      progressedValue >= conversionThreshold
+      input.previous.conversionProgress < tuning.progressThreshold &&
+      progressedValue >= tuning.progressThreshold
     ) {
       return buildSnapshot(
         false,
-        conversionThreshold,
+        tuning.progressThreshold,
         true,
         sourceSegment,
         sourceTier,
@@ -172,9 +177,9 @@ export const advanceSharedStructureConversionSnapshot = (
     input.sharedSiegeWindow.siegeWindowActive ? 'support-too-low' : 'window-expired';
 
   return buildSnapshot(
-    false,
-    decayedProgress,
-    false,
+      false,
+      decayedProgress,
+      false,
     sourceSegment,
     sourceTier,
     decayedProgress > 0 || input.previous.lastResolvedStructureStep !== 'none'
@@ -227,17 +232,21 @@ const buildSnapshot = (
   triggerReason: SharedStructureConversionTriggerReason,
   summary: string,
   lastResolvedStructureStep: SharedStructureResolvedStep
-): SharedStructureConversionSnapshot => ({
-  conversionActive,
-  conversionProgress: clamp(conversionProgress, 0, conversionThreshold),
-  conversionThreshold,
-  conversionEligible,
-  sourceSegment,
-  sourceTier,
-  triggerReason,
-  summary,
-  lastResolvedStructureStep
-});
+): SharedStructureConversionSnapshot => {
+  const tuning = gameplayTuningConfig.sharedStructureConversion;
+
+  return {
+    conversionActive,
+    conversionProgress: clamp(conversionProgress, 0, tuning.progressThreshold),
+    conversionThreshold: tuning.progressThreshold,
+    conversionEligible,
+    sourceSegment,
+    sourceTier,
+    triggerReason,
+    summary,
+    lastResolvedStructureStep
+  };
+};
 
 const resolveStepByTier = (
   tier: StructurePressureTier
@@ -249,7 +258,16 @@ const resolveStepByTier = (
       : 'core-pressure-step-confirmed';
 
 const decayProgress = (progress: number, dt: number): number =>
-  clamp(progress - dt * (0.38 + progress * 0.18), 0, conversionThreshold);
+  clamp(
+    progress -
+      dt *
+        (gameplayTuningConfig.sharedStructureConversion.decayBasePerSecond +
+          progress *
+            gameplayTuningConfig.sharedStructureConversion
+              .decayProgressMultiplier),
+    0,
+    gameplayTuningConfig.sharedStructureConversion.progressThreshold
+  );
 
 const formatTier = (tier: StructurePressureTier): string =>
   tier === 'outer'

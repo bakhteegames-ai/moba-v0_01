@@ -11,6 +11,7 @@ import {
 import {
   type SharedStructureConversionSnapshot
 } from './sharedStructureConversionStep';
+import { gameplayTuningConfig } from './gameplayTuningConfig';
 
 export type SharedDefenderResponseAction =
   | 'none'
@@ -49,15 +50,10 @@ export interface SharedDefenderResponseInput {
 }
 
 const defenderId = 'red-outer-contest-proxy';
-const contestPulseDurationSeconds = 1.35;
-const contestPulseCooldownSeconds = 3.6;
-const minimumClosureThreat = 0.44;
-const minimumAntiStallAcceleration = 0.32;
-const minimumConversionPressure = 0.08;
-
 export const advanceSharedDefenderResponseSnapshot = (
   input: SharedDefenderResponseInput
 ): SharedDefenderResponseSnapshot => {
+  const tuning = gameplayTuningConfig.sharedDefenderResponse;
   const dt = Math.max(0, input.dt);
   const sourceSegment = input.sharedSiegeWindow.sourceSegment;
   const sourceTier = input.sharedSiegeWindow.sourceTier;
@@ -73,14 +69,15 @@ export const advanceSharedDefenderResponseSnapshot = (
     input.sharedSiegeWindow.siegeWindowActive &&
     (input.structureConversion.conversionActive ||
       input.structureConversion.lastResolvedStructureStep !== 'none' ||
-      input.structureConversion.conversionProgress >= minimumConversionPressure) &&
-    (input.laneClosure.closureThreatLevel >= minimumClosureThreat ||
+      input.structureConversion.conversionProgress >=
+        tuning.minimumConversionPressure) &&
+    (input.laneClosure.closureThreatLevel >= tuning.minimumClosureThreat ||
       input.laneClosure.antiStallAccelerationLevel >=
-        minimumAntiStallAcceleration);
+        tuning.minimumAntiStallAcceleration);
 
   if (input.previous.responseActive && remainingSeconds > 0) {
     const intensity = clamp(
-      remainingSeconds / contestPulseDurationSeconds,
+      remainingSeconds / tuning.contestPulseDurationSeconds,
       0,
       1
     );
@@ -92,8 +89,10 @@ export const advanceSharedDefenderResponseSnapshot = (
       remainingSeconds,
       sourceSegment,
       sourceTier,
-      0.07 + intensity * 0.05,
-      0.16 + intensity * 0.08,
+      tuning.activeStructureSuppressionBase +
+        intensity * tuning.activeStructureSuppressionIntensity,
+      tuning.activeClosureSuppressionBase +
+        intensity * tuning.activeClosureSuppressionIntensity,
       input.previous.lastResolvedResponseAction,
       'contest-pulse-fired',
       'Red-side defender contest pulse is actively suppressing the blue push.'
@@ -141,12 +140,12 @@ export const advanceSharedDefenderResponseSnapshot = (
       true,
       true,
       'contest-pulse-fired',
-      contestPulseCooldownSeconds,
-      contestPulseDurationSeconds,
+      tuning.contestPulseCooldownSeconds,
+      tuning.contestPulseDurationSeconds,
       sourceSegment,
       sourceTier,
-      0.12,
-      0.24,
+      tuning.firedStructureSuppression,
+      tuning.firedClosureSuppression,
       'contest-pulse-fired',
       'contest-pulse-fired',
       'Red-side defender fired a contest pulse into the active blue-side push.'
@@ -226,8 +225,20 @@ const buildSnapshot = (
   responseRemainingSeconds: Math.max(0, responseRemainingSeconds),
   sourceSegment,
   sourceTier,
-  structureConversionSuppression: clamp(structureConversionSuppression, 0, 0.2),
-  closureAdvancementSuppression: clamp(closureAdvancementSuppression, 0, 0.3),
+  structureConversionSuppression: clamp(
+    structureConversionSuppression,
+    gameplayTuningConfig.sharedDefenderResponse
+      .structureConversionSuppressionClamp.min,
+    gameplayTuningConfig.sharedDefenderResponse
+      .structureConversionSuppressionClamp.max
+  ),
+  closureAdvancementSuppression: clamp(
+    closureAdvancementSuppression,
+    gameplayTuningConfig.sharedDefenderResponse
+      .closureAdvancementSuppressionClamp.min,
+    gameplayTuningConfig.sharedDefenderResponse
+      .closureAdvancementSuppressionClamp.max
+  ),
   lastResolvedResponseAction,
   triggerReason,
   summary
@@ -246,7 +257,8 @@ const buildWaitingSummary = (
     ? 'Red-side defender is waiting for a blue siege window to contest.'
     : structureConversion.conversionActive ||
         structureConversion.lastResolvedStructureStep !== 'none' ||
-        structureConversion.conversionProgress >= minimumConversionPressure
+        structureConversion.conversionProgress >=
+          gameplayTuningConfig.sharedDefenderResponse.minimumConversionPressure
       ? 'Red-side defender is holding the contest pulse until the trigger rule is satisfied.'
       : 'Red-side defender is waiting for blue structure conversion to become contestable.';
 

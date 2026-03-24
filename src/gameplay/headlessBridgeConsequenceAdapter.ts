@@ -6,6 +6,7 @@ import {
   type LanePressureSegment,
   type StructurePressureTier
 } from './pressureCalibrationScaffold';
+import { gameplayTuningConfig } from './gameplayTuningConfig';
 
 type SegmentValues = Record<LanePressureSegment, number>;
 type TierValues = Record<StructurePressureTier, number>;
@@ -52,6 +53,7 @@ export const adaptHeadlessCombatLaneBridgeToLaneConsequence = (
 export const buildHeadlessBridgeLaneModifier = (
   consequence: HeadlessBridgeLaneConsequenceSnapshot
 ): HeadlessBridgeLaneModifierSnapshot => {
+  const tuning = gameplayTuningConfig.headlessBridgeLaneModifier;
   const lanePressureBySegment = createZeroSegmentValues();
   const occupancyBySegment = createZeroSegmentValues();
   const structurePressureByTier = createZeroTierValues();
@@ -69,23 +71,30 @@ export const buildHeadlessBridgeLaneModifier = (
   }
 
   lanePressureBySegment[consequence.affectedSegment] = clamp(
-    consequence.pressureDelta * 0.58 +
-      consequence.occupancyAdvantage * 0.14 +
-      (consequence.opportunityActive ? 0.04 : 0),
-    0,
-    0.32
+    consequence.pressureDelta * tuning.lanePressureWeights.pressureDelta +
+      consequence.occupancyAdvantage *
+        tuning.lanePressureWeights.occupancyAdvantage +
+      (consequence.opportunityActive
+        ? tuning.lanePressureWeights.opportunityActiveBonus
+        : 0),
+    tuning.lanePressureClamp.min,
+    tuning.lanePressureClamp.max
   );
   occupancyBySegment[consequence.affectedSegment] = clamp(
-    consequence.occupancyAdvantage * 0.24,
-    0,
-    0.18
+    consequence.occupancyAdvantage * tuning.occupancyWeight,
+    tuning.occupancyClamp.min,
+    tuning.occupancyClamp.max
   );
   structurePressureByTier[consequence.affectedTier] = clamp(
-    consequence.pressureDelta * 0.74 +
-      consequence.occupancyAdvantage * 0.1 +
-      (consequence.opportunityActive ? 0.05 : 0),
-    0,
-    0.4
+    consequence.pressureDelta *
+      tuning.structurePressureWeights.pressureDelta +
+      consequence.occupancyAdvantage *
+        tuning.structurePressureWeights.occupancyAdvantage +
+      (consequence.opportunityActive
+        ? tuning.structurePressureWeights.opportunityActiveBonus
+        : 0),
+    tuning.structurePressureClamp.min,
+    tuning.structurePressureClamp.max
   );
 
   return {

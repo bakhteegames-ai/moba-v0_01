@@ -19,11 +19,15 @@ import {
   type HeadlessCombatLaneBridgeSnapshot
 } from '../combat/headlessCombatLaneBridge';
 import {
+  createHeadlessLaneRouteProgressModel
+} from '../combat/headlessLaneRouteProgress';
+import {
   adaptHeadlessCombatLaneBridgeToLaneConsequence,
   buildHeadlessBridgeLaneModifier,
   type HeadlessBridgeLaneConsequenceSnapshot
 } from './headlessBridgeConsequenceAdapter';
 import { createPrototypeLaneStateLoop } from './prototypeLaneStateLoop';
+import { gameplayTuningConfig } from './gameplayTuningConfig';
 
 export interface HeadlessCombatRuntimeEntitySnapshot {
   id: string;
@@ -232,34 +236,68 @@ const createArenaFromLayout = (): HeadlessCombatArenaGeometry => ({
   edgeBuffer: layoutConfig.player.edgeBuffer
 });
 
-const createLaneBridgeConfig = (): HeadlessCombatLaneBridgeConfig => ({
-  heroEntityId: playerHeroId,
-  blockerEntityId: laneBlockerId,
-  outerToInnerAdvance:
-    average(
-      layoutConfig.nodes.redOuterTower.position.x,
-      layoutConfig.nodes.redInnerTower.position.x
+const createLaneBridgeConfig = (): HeadlessCombatLaneBridgeConfig => {
+  const tuning = gameplayTuningConfig.headlessCombatLaneBridge;
+  const laneRouteProgressModel = createHeadlessLaneRouteProgressModel(
+    createCanonicalLaneRoutePoints()
+  );
+  const redOuterTowerProgress = laneRouteProgressModel.sampleNormalizedProgress(
+    toCombatVector(layoutConfig.nodes.redOuterTower.position)
+  );
+  const redInnerTowerProgress = laneRouteProgressModel.sampleNormalizedProgress(
+    toCombatVector(layoutConfig.nodes.redInnerTower.position)
+  );
+  const redCoreProgress = laneRouteProgressModel.sampleNormalizedProgress(
+    toCombatVector(layoutConfig.nodes.redCore.position)
+  );
+
+  return {
+    heroEntityId: playerHeroId,
+    blockerEntityId: laneBlockerId,
+    laneRouteProgressModel,
+    outerToInnerProgressThreshold: average(
+      redOuterTowerProgress,
+      redInnerTowerProgress
     ),
-  innerToCoreAdvance:
-    average(
-      layoutConfig.nodes.redInnerTower.position.x,
-      layoutConfig.nodes.redCore.position.x
+    innerToCoreProgressThreshold: average(
+      redInnerTowerProgress,
+      redCoreProgress
     ),
-  opportunityDurationSeconds: clamp(
-    layoutConfig.tempo.coefficients.waveHoldDurationSeconds * 0.52,
-    3.8,
-    5.4
-  ),
-  pressureDeltaOnClear: clamp(
-    layoutConfig.tempo.coefficients.attackerPushPressureCoeff * 0.36,
-    0.28,
-    0.46
-  ),
-  occupancyAdvantageOnClear: clamp(
-    0.42 + layoutConfig.tempo.coefficients.objectiveCommitSeconds * 0.18,
-    0.45,
-    0.72
-  )
+    opportunityDurationSeconds: clamp(
+      layoutConfig.tempo.coefficients.waveHoldDurationSeconds *
+        tuning.opportunityDurationWaveHoldMultiplier,
+      tuning.opportunityDurationSecondsClamp.min,
+      tuning.opportunityDurationSecondsClamp.max
+    ),
+    pressureDeltaOnClear: clamp(
+      layoutConfig.tempo.coefficients.attackerPushPressureCoeff *
+        tuning.pressureDeltaOnClearAttackerPushMultiplier,
+      tuning.pressureDeltaOnClearClamp.min,
+      tuning.pressureDeltaOnClearClamp.max
+    ),
+    occupancyAdvantageOnClear: clamp(
+      tuning.occupancyAdvantageBase +
+        layoutConfig.tempo.coefficients.objectiveCommitSeconds *
+          tuning.occupancyAdvantageObjectiveCommitMultiplier,
+      tuning.occupancyAdvantageClamp.min,
+      tuning.occupancyAdvantageClamp.max
+    )
+  };
+};
+
+const createCanonicalLaneRoutePoints = (): CombatVector2[] => [
+  toCombatVector(layoutConfig.nodes.blueCore.position),
+  toCombatVector(layoutConfig.nodes.blueInnerTower.position),
+  toCombatVector(layoutConfig.nodes.blueOuterTower.position),
+  toCombatVector(layoutConfig.nodes.midline.position),
+  toCombatVector(layoutConfig.nodes.redOuterTower.position),
+  toCombatVector(layoutConfig.nodes.redInnerTower.position),
+  toCombatVector(layoutConfig.nodes.redCore.position)
+];
+
+const toCombatVector = (point: { x: number; y: number }): CombatVector2 => ({
+  x: point.x,
+  z: point.y
 });
 
 const runLaneDeterminismProof = (

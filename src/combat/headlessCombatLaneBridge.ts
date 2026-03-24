@@ -6,6 +6,9 @@ import {
   type HeadlessHeroCombatState
 } from './headlessCombatCore';
 import {
+  type HeadlessLaneRouteProgressModel
+} from './headlessLaneRouteProgress';
+import {
   type LanePressureSegment,
   type StructurePressureTier
 } from '../gameplay/pressureCalibrationScaffold';
@@ -20,7 +23,7 @@ export interface HeadlessCombatLaneParticipantSnapshot {
   entityId: string;
   team: CombatTeam;
   position: CombatVector2;
-  laneAdvance: number;
+  routeProgress: number;
   lanePressureSegment: LanePressureSegment;
   structurePressureTier: StructurePressureTier;
   currentHp: number;
@@ -54,8 +57,9 @@ export interface HeadlessCombatLaneBridgeSnapshot {
 export interface HeadlessCombatLaneBridgeConfig {
   heroEntityId: string;
   blockerEntityId: string;
-  outerToInnerAdvance: number;
-  innerToCoreAdvance: number;
+  laneRouteProgressModel: HeadlessLaneRouteProgressModel;
+  outerToInnerProgressThreshold: number;
+  innerToCoreProgressThreshold: number;
   opportunityDurationSeconds: number;
   pressureDeltaOnClear: number;
   occupancyAdvantageOnClear: number;
@@ -211,9 +215,10 @@ const deriveParticipantSnapshot = (
   entity: HeadlessHeroCombatState,
   config: HeadlessCombatLaneBridgeConfig
 ): HeadlessCombatLaneParticipantSnapshot => {
-  // This bridge is intentionally scoped to the current blue-to-red lane slice.
-  const laneAdvance = Math.max(0, entity.position.x);
-  const structurePressureTier = deriveStructureTier(laneAdvance, config);
+  const routeProgress = config.laneRouteProgressModel.sampleNormalizedProgress(
+    entity.position
+  );
+  const structurePressureTier = deriveStructureTier(routeProgress, config);
   const lanePressureSegment = deriveLanePressureSegment(
     structurePressureTier
   );
@@ -222,7 +227,7 @@ const deriveParticipantSnapshot = (
     entityId: entity.id,
     team: entity.team,
     position: cloneVector(entity.position),
-    laneAdvance,
+    routeProgress,
     lanePressureSegment,
     structurePressureTier,
     currentHp: entity.currentHp,
@@ -232,12 +237,12 @@ const deriveParticipantSnapshot = (
 };
 
 const deriveStructureTier = (
-  laneAdvance: number,
+  routeProgress: number,
   config: HeadlessCombatLaneBridgeConfig
 ): StructurePressureTier =>
-  laneAdvance < config.outerToInnerAdvance
+  routeProgress < config.outerToInnerProgressThreshold
     ? 'outer'
-    : laneAdvance < config.innerToCoreAdvance
+    : routeProgress < config.innerToCoreProgressThreshold
       ? 'inner'
       : 'core';
 
@@ -273,7 +278,7 @@ const createDefaultParticipantSnapshot = (
   entityId,
   team,
   position: { x: 0, z: 0 },
-  laneAdvance: 0,
+  routeProgress: 0,
   lanePressureSegment: 'outer-front',
   structurePressureTier: 'outer',
   currentHp: 0,
@@ -299,7 +304,7 @@ const cloneParticipantSnapshot = (
   entityId: snapshot.entityId,
   team: snapshot.team,
   position: cloneVector(snapshot.position),
-  laneAdvance: snapshot.laneAdvance,
+  routeProgress: snapshot.routeProgress,
   lanePressureSegment: snapshot.lanePressureSegment,
   structurePressureTier: snapshot.structurePressureTier,
   currentHp: snapshot.currentHp,

@@ -116,6 +116,7 @@ import {
   createDefaultSharedPushReassertionSnapshot,
   type SharedPushReassertionSnapshot
 } from './sharedPushReassertionSlice';
+import { gameplayTuningConfig } from './gameplayTuningConfig';
 
 type SegmentValues = Record<LanePressureSegment, number>;
 type TierValues = Record<StructurePressureTier, number>;
@@ -213,10 +214,14 @@ interface LaneStateMemory {
   outcomeBias: number;
 }
 
-const carryoverStateMin = 0.95;
-const carryoverStateMax = 1.08;
-const biasMin = -0.05;
-const biasMax = 0.06;
+const carryoverStateMin =
+  gameplayTuningConfig.prototypeLaneStateLoop.carryoverPressureStateClamp.min;
+const carryoverStateMax =
+  gameplayTuningConfig.prototypeLaneStateLoop.carryoverPressureStateClamp.max;
+const biasMin =
+  gameplayTuningConfig.prototypeLaneStateLoop.outcomeBiasClamp.min;
+const biasMax =
+  gameplayTuningConfig.prototypeLaneStateLoop.outcomeBiasClamp.max;
 
 const segmentOrder: LanePressureSegment[] = [
   'outer-front',
@@ -396,17 +401,12 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
         defenderResponse: sharedDefenderResponse,
         laneClosure: laneClosureSnapshot
       });
-      const effectiveStructureSuppression = clamp(
-        sharedDefenderResponse.structureConversionSuppression -
-          sharedPushReassertion.structureSuppressionRecovery,
-        0,
-        0.2
-      );
-      const effectiveClosureSuppression = clamp(
-        sharedDefenderResponse.closureAdvancementSuppression -
-          sharedPushReassertion.closureSuppressionRecovery,
-        0,
-        0.35
+      const {
+        effectiveStructureSuppression,
+        effectiveClosureSuppression
+      } = deriveEffectiveContestSuppression(
+        sharedDefenderResponse,
+        sharedPushReassertion
       );
       sharedStructureConversion = advanceSharedStructureConversionSnapshot({
         dt,
@@ -424,20 +424,11 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
         laneClosure: laneClosureSnapshot,
         readinessSuppression: effectiveClosureSuppression
       });
-      const closureCarryoverPressureState = clamp(
-        memory.carryoverPressureState +
-          sharedClosureAdvancement.closureAdvancementValue * 0.03 -
-          effectiveClosureSuppression * 0.02,
-        carryoverStateMin,
-        carryoverStateMax
-      );
-      const closureCarryoverRelevance = clamp(
-        occupancy.consecutiveWaveCarryoverRelevance +
-          sharedClosureAdvancement.readinessLevel * 0.08 +
-          (sharedClosureAdvancement.lastResolvedClosureStep !== 'none' ? 0.04 : 0) -
-          effectiveClosureSuppression * 0.08,
-        0,
-        1
+      const closureCarryoverSupport = deriveClosureCarryoverSupport(
+        memory.carryoverPressureState,
+        occupancy.consecutiveWaveCarryoverRelevance,
+        sharedClosureAdvancement,
+        effectiveClosureSuppression
       );
       closurePacingInterpreter.update(dt, {
         laneClosure: laneClosureSnapshot,
@@ -449,8 +440,8 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
         structurePressureByTier: structurePressureEstimate,
         structureContactByTier: occupancy.structureContactByTier,
         lanePressureBySegment: lanePressureEstimate,
-        carryoverPressureState: closureCarryoverPressureState,
-        consecutiveWaveCarryoverRelevance: closureCarryoverRelevance
+        carryoverPressureState: closureCarryoverSupport.pressureState,
+        consecutiveWaveCarryoverRelevance: closureCarryoverSupport.relevance
       });
       const closurePacingSnapshot = closurePacingInterpreter.getSnapshot();
       closurePacingWatch.update(dt, {
@@ -510,8 +501,18 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
         memory.outcomeBias
       );
 
-      memory.carryoverPressureState = approach(memory.carryoverPressureState, carryoverTarget, dt * 0.35);
-      memory.outcomeBias = approach(memory.outcomeBias, 0, dt * 0.09);
+      memory.carryoverPressureState = approach(
+        memory.carryoverPressureState,
+        carryoverTarget,
+        dt *
+          gameplayTuningConfig.prototypeLaneStateLoop
+            .carryoverPressureApproachRate
+      );
+      memory.outcomeBias = approach(
+        memory.outcomeBias,
+        0,
+        dt * gameplayTuningConfig.prototypeLaneStateLoop.outcomeBiasDecayRate
+      );
     },
     setSharedLaneConsequence(consequence) {
       sharedLaneConsequence =
@@ -1093,6 +1094,64 @@ const computeCarryoverTarget = (
     carryoverStateMin,
     carryoverStateMax
   );
+
+const deriveEffectiveContestSuppression = (
+  sharedDefenderResponse: SharedDefenderResponseSnapshot,
+  sharedPushReassertion: SharedPushReassertionSnapshot
+): {
+  effectiveStructureSuppression: number;
+  effectiveClosureSuppression: number;
+} => ({
+  effectiveStructureSuppression: clamp(
+    sharedDefenderResponse.structureConversionSuppression -
+      sharedPushReassertion.structureSuppressionRecovery,
+    gameplayTuningConfig.sharedStructureConversion.progressSuppressionClamp.min,
+    gameplayTuningConfig.sharedStructureConversion.progressSuppressionClamp.max
+  ),
+  effectiveClosureSuppression: clamp(
+    sharedDefenderResponse.closureAdvancementSuppression -
+      sharedPushReassertion.closureSuppressionRecovery,
+    gameplayTuningConfig.sharedClosureAdvancement.readinessSuppressionClamp.min,
+    gameplayTuningConfig.sharedClosureAdvancement.readinessSuppressionClamp.max
+  )
+});
+
+const deriveClosureCarryoverSupport = (
+  carryoverPressureState: number,
+  consecutiveWaveCarryoverRelevance: number,
+  sharedClosureAdvancement: SharedClosureAdvancementSnapshot,
+  effectiveClosureSuppression: number
+): {
+  pressureState: number;
+  relevance: number;
+} => ({
+  pressureState: clamp(
+    carryoverPressureState +
+      sharedClosureAdvancement.closureAdvancementValue *
+        gameplayTuningConfig.prototypeLaneStateLoop
+          .closureCarryoverPressureBonusFromAdvancement -
+      effectiveClosureSuppression *
+        gameplayTuningConfig.prototypeLaneStateLoop
+          .closureCarryoverPressurePenaltyFromSuppression,
+    carryoverStateMin,
+    carryoverStateMax
+  ),
+  relevance: clamp(
+    consecutiveWaveCarryoverRelevance +
+      sharedClosureAdvancement.readinessLevel *
+        gameplayTuningConfig.prototypeLaneStateLoop
+          .closureCarryoverRelevanceBonusFromReadiness +
+      (sharedClosureAdvancement.lastResolvedClosureStep !== 'none'
+        ? gameplayTuningConfig.prototypeLaneStateLoop
+            .closureCarryoverRelevanceBonusFromResolvedClosure
+        : 0) -
+      effectiveClosureSuppression *
+        gameplayTuningConfig.prototypeLaneStateLoop
+          .closureCarryoverRelevancePenaltyFromSuppression,
+    0,
+    1
+  )
+});
 
 const buildStructureEventInput = (
   occupancy: PrototypeLaneOccupancySnapshot,

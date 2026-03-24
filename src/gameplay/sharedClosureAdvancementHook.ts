@@ -8,6 +8,7 @@ import {
 import {
   type SharedStructureConversionSnapshot
 } from './sharedStructureConversionStep';
+import { gameplayTuningConfig } from './gameplayTuningConfig';
 
 export type SharedClosureAdvancementTriggerReason =
   | 'none'
@@ -40,17 +41,18 @@ export interface SharedClosureAdvancementHookInput {
   readinessSuppression?: number;
 }
 
-const closureAdvancementThreshold = 0.24;
-const minimumReadinessLevel = 0.42;
-const minimumStructuralSignal = 0.22;
-
 export const advanceSharedClosureAdvancementSnapshot = (
   input: SharedClosureAdvancementHookInput
 ): SharedClosureAdvancementSnapshot => {
+  const tuning = gameplayTuningConfig.sharedClosureAdvancement;
   const dt = Math.max(0, input.dt);
   const sourceSegment = input.structureConversion.sourceSegment;
   const sourceTier = input.structureConversion.sourceTier;
-  const readinessSuppression = clamp(input.readinessSuppression ?? 0, 0, 0.35);
+  const readinessSuppression = clamp(
+    input.readinessSuppression ?? 0,
+    tuning.readinessSuppressionClamp.min,
+    tuning.readinessSuppressionClamp.max
+  );
   const structuralSignal = clamp(
     input.structureConversion.conversionThreshold > 0
       ? input.structureConversion.conversionProgress /
@@ -60,22 +62,25 @@ export const advanceSharedClosureAdvancementSnapshot = (
     1
   );
   const readinessLevel = clamp(
-    structuralSignal * 0.34 +
-      input.laneClosure.antiStallAccelerationLevel * 0.28 +
-      input.laneClosure.closureThreatLevel * 0.2 +
-      input.laneClosure.structuralCarryoverLevel * 0.18 -
+    structuralSignal * tuning.readinessWeights.structuralSignal +
+      input.laneClosure.antiStallAccelerationLevel *
+        tuning.readinessWeights.antiStallAcceleration +
+      input.laneClosure.closureThreatLevel *
+        tuning.readinessWeights.closureThreat +
+      input.laneClosure.structuralCarryoverLevel *
+        tuning.readinessWeights.structuralCarryover -
       readinessSuppression,
     0,
     1
   );
   const readinessEligible =
     (input.structureConversion.lastResolvedStructureStep !== 'none' ||
-      structuralSignal >= minimumStructuralSignal) &&
-    readinessLevel >= minimumReadinessLevel;
+      structuralSignal >= tuning.minimumStructuralSignal) &&
+    readinessLevel >= tuning.minimumReadinessLevel;
 
   if (
     input.previous.sourceTier === sourceTier &&
-    input.previous.closureAdvancementValue >= closureAdvancementThreshold &&
+    input.previous.closureAdvancementValue >= tuning.valueThreshold &&
     input.previous.lastResolvedClosureStep !== 'none'
   ) {
     if (
@@ -84,7 +89,7 @@ export const advanceSharedClosureAdvancementSnapshot = (
     ) {
       return buildSnapshot(
         false,
-        closureAdvancementThreshold,
+        tuning.valueThreshold,
         readinessLevel,
         readinessEligible,
         sourceSegment,
@@ -113,26 +118,28 @@ export const advanceSharedClosureAdvancementSnapshot = (
 
   if (readinessEligible) {
     const gainRate = clamp(
-      0.16 +
-        readinessLevel * 0.14 +
-        structuralSignal * 0.12 +
-        (input.structureConversion.lastResolvedStructureStep !== 'none' ? 0.06 : 0),
-      0.18,
-      0.42
+      tuning.gainRateBase +
+        readinessLevel * tuning.gainRateReadinessMultiplier +
+        structuralSignal * tuning.gainRateStructuralSignalMultiplier +
+        (input.structureConversion.lastResolvedStructureStep !== 'none'
+          ? tuning.gainRateResolvedStructureBonus
+          : 0),
+      tuning.gainRateClamp.min,
+      tuning.gainRateClamp.max
     );
     const advancedValue = clamp(
       input.previous.closureAdvancementValue + dt * gainRate,
       0,
-      closureAdvancementThreshold
+      tuning.valueThreshold
     );
 
     if (
-      input.previous.closureAdvancementValue < closureAdvancementThreshold &&
-      advancedValue >= closureAdvancementThreshold
+      input.previous.closureAdvancementValue < tuning.valueThreshold &&
+      advancedValue >= tuning.valueThreshold
     ) {
       return buildSnapshot(
         false,
-        closureAdvancementThreshold,
+        tuning.valueThreshold,
         readinessLevel,
         true,
         sourceSegment,
@@ -216,24 +223,37 @@ const buildSnapshot = (
   triggerReason: SharedClosureAdvancementTriggerReason,
   summary: string,
   lastResolvedClosureStep: SharedClosureResolvedStep
-): SharedClosureAdvancementSnapshot => ({
-  closureAdvancementActive,
-  closureAdvancementValue: clamp(
-    closureAdvancementValue,
-    0,
-    closureAdvancementThreshold
-  ),
-  readinessLevel: clamp(readinessLevel, 0, 1),
-  readinessEligible,
-  sourceSegment,
-  sourceTier,
-  triggerReason,
-  summary,
-  lastResolvedClosureStep
-});
+): SharedClosureAdvancementSnapshot => {
+  const tuning = gameplayTuningConfig.sharedClosureAdvancement;
+
+  return {
+    closureAdvancementActive,
+    closureAdvancementValue: clamp(
+      closureAdvancementValue,
+      0,
+      tuning.valueThreshold
+    ),
+    readinessLevel: clamp(readinessLevel, 0, 1),
+    readinessEligible,
+    sourceSegment,
+    sourceTier,
+    triggerReason,
+    summary,
+    lastResolvedClosureStep
+  };
+};
 
 const decayValue = (value: number, dt: number): number =>
-  clamp(value - dt * (0.34 + value * 0.2), 0, closureAdvancementThreshold);
+  clamp(
+    value -
+      dt *
+        (gameplayTuningConfig.sharedClosureAdvancement.decayBasePerSecond +
+          value *
+            gameplayTuningConfig.sharedClosureAdvancement
+              .decayValueMultiplier),
+    0,
+    gameplayTuningConfig.sharedClosureAdvancement.valueThreshold
+  );
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.max(min, Math.min(max, value));

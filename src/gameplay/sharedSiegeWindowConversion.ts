@@ -5,6 +5,7 @@ import {
   type LanePressureSegment,
   type StructurePressureTier
 } from './pressureCalibrationScaffold';
+import { gameplayTuningConfig } from './gameplayTuningConfig';
 
 type SegmentValues = Record<LanePressureSegment, number>;
 type TierValues = Record<StructurePressureTier, number>;
@@ -33,30 +34,33 @@ export interface SharedSiegeWindowConversionInput {
   segmentOccupancyPresence: SegmentValues;
 }
 
-const minimumPressureSupport = 0.44;
-const minimumOccupancySupport = 0.18;
-
 export const deriveSharedSiegeWindowSnapshot = (
   input: SharedSiegeWindowConversionInput
 ): SharedSiegeWindowSnapshot => {
+  const tuning = gameplayTuningConfig.sharedSiegeWindow;
   const sourceSegment = input.sharedLaneConsequence.affectedSegment;
   const sourceTier = input.sharedLaneConsequence.affectedTier;
   const pressureSupportLevel = clamp(
-    input.sharedLaneConsequence.pressureDelta * 0.6 +
-      input.lanePressureBySegment[sourceSegment] * 0.28 +
-      input.structurePressureByTier[sourceTier] * 0.12,
+    input.sharedLaneConsequence.pressureDelta *
+      tuning.pressureSupportWeights.pressureDelta +
+      input.lanePressureBySegment[sourceSegment] *
+        tuning.pressureSupportWeights.lanePressure +
+      input.structurePressureByTier[sourceTier] *
+        tuning.pressureSupportWeights.structurePressure,
     0,
     1
   );
   const occupancySupportLevel = clamp(
-    input.sharedLaneConsequence.occupancyAdvantage * 0.58 +
-      input.segmentOccupancyPresence[sourceSegment] * 0.42,
+    input.sharedLaneConsequence.occupancyAdvantage *
+      tuning.occupancySupportWeights.occupancyAdvantage +
+      input.segmentOccupancyPresence[sourceSegment] *
+        tuning.occupancySupportWeights.segmentOccupancyPresence,
     0,
     1
   );
   const supportSufficient =
-    pressureSupportLevel >= minimumPressureSupport &&
-    occupancySupportLevel >= minimumOccupancySupport;
+    pressureSupportLevel >= tuning.minimumPressureSupport &&
+    occupancySupportLevel >= tuning.minimumOccupancySupport;
 
   if (
     input.sharedLaneConsequence.opportunityActive &&
@@ -67,11 +71,11 @@ export const deriveSharedSiegeWindowSnapshot = (
       siegeWindowRemainingSeconds: Math.min(
         input.sharedLaneConsequence.opportunityRemainingSeconds,
         clamp(
-          1.65 +
-            pressureSupportLevel * 1.55 +
-            occupancySupportLevel * 0.95,
-          1.8,
-          4.25
+          tuning.durationBaseSeconds +
+            pressureSupportLevel * tuning.durationPressureSupportMultiplier +
+            occupancySupportLevel * tuning.durationOccupancySupportMultiplier,
+          tuning.durationSecondsClamp.min,
+          tuning.durationSecondsClamp.max
         )
       ),
       sourceSegment,
