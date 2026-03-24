@@ -60,10 +60,24 @@ interface DiscCueScale {
   thickness: number;
 }
 
+interface FocusMarkerCue {
+  root: pc.Entity;
+}
+
+interface TargetHealthStripCue {
+  root: pc.Entity;
+  fill: pc.Entity;
+}
+
 type TargetabilityCueState =
   | 'hidden'
   | 'in-range'
   | 'cooldown'
+  | 'out-of-range';
+
+type RangeEnvelopeCueState =
+  | 'hidden'
+  | 'in-range'
   | 'out-of-range';
 
 type PresentationTier = keyof typeof presentationTuning.indicatorBar.tierOffsets;
@@ -135,6 +149,38 @@ export const createAuthoritativePresentationShell = (
       radius: presentationTuning.targetabilityCue.radiusClamp.max,
       thickness: presentationTuning.targetabilityCue.thickness
     }
+  );
+  const rangeEnvelopeMaterial = createCueMaterial(
+    presentationTuning.targetabilityCue.states.outOfRange
+  );
+  const rangeEnvelopeCue = createDiscCue(
+    'TargetabilityEnvelopeCue',
+    rangeEnvelopeMaterial.material,
+    root,
+    {
+      radius: 0,
+      thickness: presentationTuning.targetabilityCue.envelopeThickness
+    }
+  );
+  const targetFocusMaterial = createCueMaterial(
+    presentationTuning.targetabilityCue.states.outOfRange
+  );
+  const targetFocusCue = createTargetFocusCue(
+    'TargetFocusCue',
+    targetFocusMaterial.material,
+    root
+  );
+  const targetHealthStripBackplateMaterial = createCueMaterial(
+    presentationTuning.targetabilityCue.healthStripBackplate
+  );
+  const targetHealthStripFillMaterial = createCueMaterial(
+    presentationTuning.targetabilityCue.healthStripFill
+  );
+  const targetHealthStripCue = createTargetHealthStripCue(
+    'TargetHealthStripCue',
+    targetHealthStripBackplateMaterial.material,
+    targetHealthStripFillMaterial.material,
+    root
   );
 
   const indicatorRoot = new pc.Entity('MacroIndicatorRoot');
@@ -238,12 +284,34 @@ export const createAuthoritativePresentationShell = (
       updateCastPulseCue(castPulse, castMaterial, castPulseState);
       updateImpactPulseCue(impactPulse, impactMaterial, impactPulseState);
       const targetabilityCueState = deriveTargetabilityCueState(input.combat);
+      const rangeEnvelopeCueState = deriveRangeEnvelopeCueState(input.combat);
       updateTargetabilityCue(
         targetabilityCue,
         targetabilityMaterial,
         registry,
         input.combat,
         targetabilityCueState
+      );
+      updateRangeEnvelopeCue(
+        rangeEnvelopeCue,
+        rangeEnvelopeMaterial,
+        registry,
+        input.combat,
+        rangeEnvelopeCueState
+      );
+      updateTargetFocusCue(
+        targetFocusCue,
+        targetFocusMaterial,
+        registry,
+        input.combat,
+        rangeEnvelopeCueState
+      );
+      updateTargetHealthStripCue(
+        targetHealthStripCue,
+        targetHealthStripBackplateMaterial,
+        targetHealthStripFillMaterial,
+        registry,
+        input.combat
       );
       updateContestCue(
         defenderCue,
@@ -388,6 +456,93 @@ const createDiscCue = (
   return entity;
 };
 
+const createTargetFocusCue = (
+  name: string,
+  material: pc.StandardMaterial,
+  parent: pc.Entity
+): FocusMarkerCue => {
+  const root = new pc.Entity(name);
+  root.enabled = false;
+  parent.addChild(root);
+
+  const leftArm = createFocusMarkerArm('LeftArm', material, root);
+  leftArm.setLocalPosition(
+    -presentationTuning.targetabilityCue.focusMarkerArmOffsetX,
+    0,
+    0
+  );
+  leftArm.setLocalEulerAngles(
+    0,
+    0,
+    presentationTuning.targetabilityCue.focusMarkerArmAngleDegrees
+  );
+
+  const rightArm = createFocusMarkerArm('RightArm', material, root);
+  rightArm.setLocalPosition(
+    presentationTuning.targetabilityCue.focusMarkerArmOffsetX,
+    0,
+    0
+  );
+  rightArm.setLocalEulerAngles(
+    0,
+    0,
+    -presentationTuning.targetabilityCue.focusMarkerArmAngleDegrees
+  );
+
+  return { root };
+};
+
+const createTargetHealthStripCue = (
+  name: string,
+  backplateMaterial: pc.StandardMaterial,
+  fillMaterial: pc.StandardMaterial,
+  parent: pc.Entity
+): TargetHealthStripCue => {
+  const root = new pc.Entity(name);
+  root.enabled = false;
+  parent.addChild(root);
+
+  const backplate = new pc.Entity('Backplate');
+  backplate.addComponent('render', {
+    type: 'box',
+    material: backplateMaterial
+  });
+  backplate.setLocalScale(
+    presentationTuning.targetabilityCue.healthStripWidth,
+    presentationTuning.targetabilityCue.healthStripHeight,
+    presentationTuning.targetabilityCue.healthStripDepth
+  );
+  root.addChild(backplate);
+
+  const fill = new pc.Entity('Fill');
+  fill.addComponent('render', {
+    type: 'box',
+    material: fillMaterial
+  });
+  root.addChild(fill);
+
+  return { root, fill };
+};
+
+const createFocusMarkerArm = (
+  name: string,
+  material: pc.StandardMaterial,
+  parent: pc.Entity
+): pc.Entity => {
+  const entity = new pc.Entity(name);
+  entity.addComponent('render', {
+    type: 'box',
+    material
+  });
+  entity.setLocalScale(
+    presentationTuning.targetabilityCue.focusMarkerArmLength,
+    presentationTuning.targetabilityCue.focusMarkerArmThickness,
+    presentationTuning.targetabilityCue.focusMarkerArmDepth
+  );
+  parent.addChild(entity);
+  return entity;
+};
+
 const createIndicatorBar = (
   name: string,
   material: pc.StandardMaterial,
@@ -518,6 +673,148 @@ const updateTargetabilityCue = (
   );
 };
 
+const updateRangeEnvelopeCue = (
+  entity: pc.Entity,
+  material: CueMaterialBinding,
+  registry: SceneRegistry,
+  combat: HeadlessCombatRuntimeSnapshot,
+  state: RangeEnvelopeCueState
+): void => {
+  if (state === 'hidden') {
+    entity.enabled = false;
+    return;
+  }
+
+  entity.enabled = true;
+  const targetWorld = toWorldPoint(
+    registry,
+    combat.target.position.x,
+    combat.target.position.z,
+    presentationTuning.targetabilityCue.envelopeHeightOffset
+  );
+  const envelopeDiameter = getCastLegalityDistance(combat) * 2;
+  const stateStyle = getTargetabilityCueStyle(
+    state,
+    combat.lastLegalityFailureReason === 'out-of-range'
+  );
+
+  entity.setPosition(targetWorld);
+  entity.setLocalScale(
+    envelopeDiameter,
+    presentationTuning.targetabilityCue.envelopeThickness,
+    envelopeDiameter
+  );
+  applyMaterialState(
+    material,
+    stateStyle.emissive *
+      presentationTuning.targetabilityCue.envelopeEmissiveScale,
+    stateStyle.opacity * presentationTuning.targetabilityCue.envelopeOpacityScale,
+    stateStyle.hex
+  );
+};
+
+const updateTargetFocusCue = (
+  cue: FocusMarkerCue,
+  material: CueMaterialBinding,
+  registry: SceneRegistry,
+  combat: HeadlessCombatRuntimeSnapshot,
+  state: RangeEnvelopeCueState
+): void => {
+  if (state === 'hidden') {
+    cue.root.enabled = false;
+    return;
+  }
+
+  cue.root.enabled = true;
+  cue.root.setPosition(
+    toWorldPoint(
+      registry,
+      combat.target.position.x,
+      combat.target.position.z,
+      combat.target.bodyRadius *
+        presentationTuning.targetabilityCue.focusMarkerHeightBodyMultiplier
+    )
+  );
+
+  const stateStyle = getTargetabilityCueStyle(
+    state,
+    combat.lastLegalityFailureReason === 'out-of-range'
+  );
+  applyMaterialState(
+    material,
+    stateStyle.emissive *
+      presentationTuning.targetabilityCue.focusMarkerEmissiveScale,
+    stateStyle.opacity * presentationTuning.targetabilityCue.focusMarkerOpacityScale,
+    stateStyle.hex
+  );
+};
+
+const updateTargetHealthStripCue = (
+  cue: TargetHealthStripCue,
+  backplateMaterial: CueMaterialBinding,
+  fillMaterial: CueMaterialBinding,
+  registry: SceneRegistry,
+  combat: HeadlessCombatRuntimeSnapshot
+): void => {
+  if (!combat.player.alive || !combat.target.alive) {
+    cue.root.enabled = false;
+    return;
+  }
+
+  cue.root.enabled = true;
+  cue.root.setPosition(
+    toWorldPoint(
+      registry,
+      combat.target.position.x,
+      combat.target.position.z,
+      combat.target.bodyRadius *
+        presentationTuning.targetabilityCue.healthStripHeightBodyMultiplier
+    )
+  );
+
+  const fillRatio = clamp(
+    combat.target.maxHp > 0
+      ? combat.target.currentHp / combat.target.maxHp
+      : 0,
+    0,
+    1
+  );
+  const fillWidth =
+    presentationTuning.targetabilityCue.healthStripWidth -
+    presentationTuning.targetabilityCue.healthStripFillInset * 2;
+  const fillHeight =
+    presentationTuning.targetabilityCue.healthStripHeight -
+    presentationTuning.targetabilityCue.healthStripFillInset * 2;
+  const fillDepth =
+    presentationTuning.targetabilityCue.healthStripDepth -
+    presentationTuning.targetabilityCue.healthStripFillInset * 2;
+  const scaledFillWidth = fillWidth * fillRatio;
+  const leftEdgeOffset =
+    -presentationTuning.targetabilityCue.healthStripWidth * 0.5 +
+    presentationTuning.targetabilityCue.healthStripFillInset +
+    scaledFillWidth * 0.5;
+
+  cue.fill.setLocalScale(
+    scaledFillWidth,
+    Math.max(fillHeight, 0.01),
+    Math.max(fillDepth, 0.01)
+  );
+  cue.fill.setLocalPosition(leftEdgeOffset, 0, 0);
+
+  applyMaterialState(
+    backplateMaterial,
+    presentationTuning.targetabilityCue.healthStripBackplate.emissive,
+    presentationTuning.targetabilityCue.healthStripBackplate.opacity,
+    presentationTuning.targetabilityCue.healthStripBackplate.hex
+  );
+  applyMaterialState(
+    fillMaterial,
+    presentationTuning.targetabilityCue.healthStripFill.emissive,
+    presentationTuning.targetabilityCue.healthStripFill.opacity,
+    presentationTuning.targetabilityCue.healthStripFill.hex
+  );
+};
+
 const updateContestCue = (
   entity: pc.Entity,
   material: CueMaterialBinding,
@@ -624,18 +921,11 @@ const resolvePresentationAnchor = (
 const deriveTargetabilityCueState = (
   combat: HeadlessCombatRuntimeSnapshot
 ): TargetabilityCueState => {
-  if (!combat.target.alive) {
+  if (!combat.player.alive || !combat.target.alive) {
     return 'hidden';
   }
 
-  const maxCastDistance =
-    combat.castRange + combat.player.bodyRadius + combat.target.bodyRadius;
-  const targetDistance = Math.hypot(
-    combat.target.position.x - combat.player.position.x,
-    combat.target.position.z - combat.player.position.z
-  );
-
-  if (targetDistance > maxCastDistance) {
+  if (!isTargetWithinCastRange(combat)) {
     return 'out-of-range';
   }
 
@@ -645,6 +935,15 @@ const deriveTargetabilityCueState = (
 
   return 'in-range';
 };
+
+const deriveRangeEnvelopeCueState = (
+  combat: HeadlessCombatRuntimeSnapshot
+): RangeEnvelopeCueState =>
+  !combat.player.alive || !combat.target.alive
+    ? 'hidden'
+    : isTargetWithinCastRange(combat)
+      ? 'in-range'
+      : 'out-of-range';
 
 const getTargetabilityCueStyle = (
   state: Exclude<TargetabilityCueState, 'hidden'>,
@@ -675,6 +974,22 @@ const getTargetabilityCueStyle = (
       presentationTuning.targetabilityCue.states.blockedBoost.opacityBonus
   };
 };
+
+const isTargetWithinCastRange = (
+  combat: HeadlessCombatRuntimeSnapshot
+): boolean =>
+  getTargetDistance(combat) <= getCastLegalityDistance(combat);
+
+const getCastLegalityDistance = (
+  combat: HeadlessCombatRuntimeSnapshot
+): number =>
+  combat.castRange + combat.player.bodyRadius + combat.target.bodyRadius;
+
+const getTargetDistance = (combat: HeadlessCombatRuntimeSnapshot): number =>
+  Math.hypot(
+    combat.target.position.x - combat.player.position.x,
+    combat.target.position.z - combat.player.position.z
+  );
 
 const getIndicatorOffset = (
   tier: PresentationTier

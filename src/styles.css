@@ -57,6 +57,31 @@ body,
   gap: 8px;
 }
 
+.player-hud-strip {
+  flex: 1;
+}
+
+.player-hud-strip[data-visible="false"] {
+  display: none;
+}
+
+.player-hud-strip-track {
+  overflow: hidden;
+  height: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(7, 9, 12, 0.82);
+}
+
+.player-hud-player-health-fill {
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #d46d67 0%, #e8bf7e 40%, #7cc8a2 100%);
+  transform-origin: left center;
+  transform: scaleX(0);
+}
+
 .player-hud-chip,
 .player-hud-meter {
   min-width: 0;
@@ -72,6 +97,10 @@ body,
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+.player-hud-chip[data-visible="false"] {
+  display: none;
 }
 
 .player-hud-chip[data-tone="ready"] {

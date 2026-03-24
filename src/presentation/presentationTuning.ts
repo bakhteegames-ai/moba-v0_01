@@ -59,12 +59,39 @@ export const presentationTuning = {
   },
   targetabilityCue: {
     heightOffset: 0.18,
+    envelopeHeightOffset: 0.04,
+    focusMarkerHeightBodyMultiplier: 2.2,
+    healthStripHeightBodyMultiplier: 2.65,
     radiusBodyMultiplier: 3.2,
     radiusClamp: {
       min: 1.7,
       max: 2.9
     },
     thickness: 0.05,
+    envelopeThickness: 0.025,
+    envelopeEmissiveScale: 0.72,
+    envelopeOpacityScale: 0.58,
+    focusMarkerArmLength: 0.52,
+    focusMarkerArmThickness: 0.08,
+    focusMarkerArmDepth: 0.08,
+    focusMarkerArmOffsetX: 0.2,
+    focusMarkerArmAngleDegrees: 36,
+    focusMarkerEmissiveScale: 0.94,
+    focusMarkerOpacityScale: 0.92,
+    healthStripWidth: 1.2,
+    healthStripHeight: 0.09,
+    healthStripDepth: 0.08,
+    healthStripFillInset: 0.03,
+    healthStripBackplate: {
+      hex: '#12161d',
+      emissive: 0.08,
+      opacity: 0.82
+    },
+    healthStripFill: {
+      hex: '#f3e5a2',
+      emissive: 0.28,
+      opacity: 0.94
+    },
     states: {
       inRange: {
         hex: '#7cc8a2',
@@ -134,6 +161,13 @@ export const presentationTuning = {
     nextStep: {
       moveIntoRange: 'Move Into Range',
       castNow: 'Cast Now',
+      cooldownRecovering: 'Cooldown Recovering',
+      targetCleared: 'Target Cleared'
+    },
+    lastCast: {
+      none: 'No Cast Yet',
+      blockedPrefix: 'Blocked:',
+      castCommitted: 'Cast Committed',
       cooldownRecovering: 'Cooldown Recovering',
       targetCleared: 'Target Cleared'
     },

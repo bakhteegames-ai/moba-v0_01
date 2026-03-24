@@ -32,6 +32,11 @@ interface HudMeter {
   fill: HTMLDivElement;
 }
 
+interface HudStrip {
+  root: HTMLDivElement;
+  fill: HTMLDivElement;
+}
+
 type HudTone =
   | 'ready'
   | 'blocked'
@@ -50,6 +55,11 @@ interface HudMeterState {
   value: string;
   fraction: number;
   active: boolean;
+}
+
+interface HudStripState {
+  visible: boolean;
+  fraction: number;
 }
 
 interface AggregatedCombatHudStatuses {
@@ -72,16 +82,19 @@ export const createPlayerFacingHud = (): PlayerFacingHud => {
   panel.className = 'player-hud';
   root.appendChild(panel);
 
+  const vitalsRow = createRow();
   const focusRow = createRow();
   const topRow = createRow();
   const statusRow = createRow();
   const meterColumn = document.createElement('div');
   meterColumn.className = 'player-hud-meter-column';
 
+  const playerHealthStrip = createStrip('player-hud-player-health-fill');
   const combatChip = createChip('Combat');
   const nextChip = createChip('Next');
   const abilityChip = createChip('Ability');
   const castChip = createChip('Cast');
+  const lastCastChip = createChip('Last Cast');
   const targetChip = createChip('Target');
   const siegeChip = createChip('Siege');
   const contestChip = createChip('Contest');
@@ -89,15 +102,29 @@ export const createPlayerFacingHud = (): PlayerFacingHud => {
   const structureMeter = createMeter('Structure');
   const closureMeter = createMeter('Closure');
 
+  vitalsRow.append(playerHealthStrip.root);
   focusRow.append(combatChip.root, nextChip.root);
-  topRow.append(abilityChip.root, castChip.root, targetChip.root);
+  topRow.append(
+    abilityChip.root,
+    castChip.root,
+    lastCastChip.root,
+    targetChip.root
+  );
   statusRow.append(siegeChip.root, contestChip.root, recoveryChip.root);
   meterColumn.append(structureMeter.root, closureMeter.root);
-  panel.append(focusRow, topRow, statusRow, meterColumn);
+  panel.append(vitalsRow, focusRow, topRow, statusRow, meterColumn);
   document.body.appendChild(root);
 
   return {
     update(_dt, input) {
+      updateStrip(
+        playerHealthStrip,
+        derivePlayerHealthStripState(
+          input.combat.player.alive,
+          input.combat.player.currentHp,
+          input.combat.player.maxHp
+        )
+      );
       const combatState = deriveAggregatedCombatState(input.combat);
       const combatHudStatuses = deriveAggregatedCombatHudStatuses(
         combatState,
@@ -120,6 +147,14 @@ export const createPlayerFacingHud = (): PlayerFacingHud => {
           input.combat.player.basicAbilityCooldownRemaining
         )
       );
+      updateChip(
+        lastCastChip,
+        deriveLastCastStatus(
+          input.combat.lastResolvedCast
+        )
+      );
+      lastCastChip.root.dataset.visible =
+        input.combat.lastResolvedCast !== null ? 'true' : 'false';
       updateChip(
         targetChip,
         deriveTargetStatus(
@@ -190,6 +225,22 @@ const createChip = (label: string): HudChip => {
   return { root, value };
 };
 
+const createStrip = (fillClassName: string): HudStrip => {
+  const root = document.createElement('div');
+  root.className = 'player-hud-strip';
+
+  const track = document.createElement('div');
+  track.className = 'player-hud-strip-track';
+
+  const fill = document.createElement('div');
+  fill.className = fillClassName;
+
+  track.appendChild(fill);
+  root.appendChild(track);
+
+  return { root, fill };
+};
+
 const createMeter = (label: string): HudMeter => {
   const root = document.createElement('div');
   root.className = 'player-hud-meter';
@@ -233,6 +284,23 @@ const updateMeter = (
   meter.fill.style.transform = `scaleX(${clamp(state.fraction, 0, 1)})`;
   meter.root.dataset.active = state.active ? 'true' : 'false';
 };
+
+const updateStrip = (
+  strip: HudStrip,
+  state: HudStripState
+): void => {
+  strip.root.dataset.visible = state.visible ? 'true' : 'false';
+  strip.fill.style.transform = `scaleX(${clamp(state.fraction, 0, 1)})`;
+};
+
+const derivePlayerHealthStripState = (
+  alive: boolean,
+  currentHp: number,
+  maxHp: number
+): HudStripState => ({
+  visible: alive,
+  fraction: alive && maxHp > 0 ? clamp(currentHp / maxHp, 0, 1) : 0
+});
 
 const deriveAbilityStatus = (cooldownRemaining: number): HudStatus =>
   cooldownRemaining > 0
@@ -363,6 +431,49 @@ const deriveCastStatus = (
     value: presentationTuning.hud.text.legal,
     tone: 'ready'
   };
+};
+
+const deriveLastCastStatus = (
+  lastResolvedCast: HeadlessCombatRuntimeSnapshot['lastResolvedCast']
+): HudStatus => {
+  if (!lastResolvedCast) {
+    return buildStaticStatus(presentationTuning.hud.lastCast.none, 'idle');
+  }
+
+  if (lastResolvedCast.success && lastResolvedCast.targetAliveAfter === false) {
+    return buildStaticStatus(
+      presentationTuning.hud.lastCast.targetCleared,
+      'resolved'
+    );
+  }
+
+  if (lastResolvedCast.success) {
+    return buildStaticStatus(
+      presentationTuning.hud.lastCast.castCommitted,
+      'ready'
+    );
+  }
+
+  if (lastResolvedCast.failureReason === 'on-cooldown') {
+    return buildStaticStatus(
+      presentationTuning.hud.lastCast.cooldownRecovering,
+      'blocked'
+    );
+  }
+
+  if (!lastResolvedCast.failureReason) {
+    return buildStaticStatus(
+      presentationTuning.hud.lastCast.none,
+      'idle'
+    );
+  }
+
+  return buildStaticStatus(
+    `${presentationTuning.hud.lastCast.blockedPrefix} ${formatCastFailureReason(
+      lastResolvedCast.failureReason
+    )}`,
+    'blocked'
+  );
 };
 
 const deriveTargetStatus = (
