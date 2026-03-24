@@ -36,10 +36,11 @@ const wavePressureValidator = createWavePressureValidator(registry);
 
 const runFrame = (dt: number): void => {
   playerController.update(dt);
-  liveInteractionValidator.update(dt);
+  const headlessCombatSnapshot = headlessCombat.getSnapshot();
+  liveInteractionValidator.update(dt, headlessCombatSnapshot.sharedLaneConsequence);
   tempoHarness.update(dt);
   wavePressureValidator.update(dt);
-  const headlessCombatSnapshot = headlessCombat.getSnapshot();
+  const liveInteractionSnapshot = liveInteractionValidator.getDebugState();
   debugSystem.update({
     playerPosition: playerController.getPlayerPosition(),
     camera: playerController.getActiveCamera(),
@@ -48,7 +49,7 @@ const runFrame = (dt: number): void => {
     activeProbeRouteId: playerController.getProbeRouteId(),
     probeElapsedSeconds: playerController.getProbeElapsedSeconds(),
     headlessCombat: headlessCombatSnapshot,
-    liveInteraction: liveInteractionValidator.getDebugState(),
+    liveInteraction: liveInteractionSnapshot,
     liveInteractionControls,
     tempo: tempoHarness.getDebugState(),
     wavePressure: wavePressureValidator.getDebugState()
@@ -72,6 +73,7 @@ debugWindow.advanceTime = (ms: number): void => {
 
 debugWindow.render_game_to_text = (): string => {
   const snapshot = headlessCombat.getSnapshot();
+  const liveInteractionSnapshot = liveInteractionValidator.getDebugState();
   return JSON.stringify({
     coordinateSystem: {
       origin: layoutConfig.coordinateModel.origin,
@@ -131,6 +133,53 @@ debugWindow.render_game_to_text = (): string => {
           occupancyAdvantage: round(
             snapshot.laneBridge.lastBridgeOutcome.occupancyAdvantage
           )
+        }
+      },
+      sharedLaneConsequence: {
+        local: {
+          affectedSegment: snapshot.sharedLaneConsequence.affectedSegment,
+          affectedTier: snapshot.sharedLaneConsequence.affectedTier,
+          pressureDelta: round(snapshot.sharedLaneConsequence.pressureDelta),
+          occupancyAdvantage: round(
+            snapshot.sharedLaneConsequence.occupancyAdvantage
+          ),
+          opportunityActive: snapshot.sharedLaneConsequence.opportunityActive,
+          opportunityRemaining: round(
+            snapshot.sharedLaneConsequence.opportunityRemainingSeconds
+          ),
+          lastBridgeOutcomeKind:
+            snapshot.sharedLaneConsequence.lastBridgeOutcomeKind,
+          lastBridgeOutcomeSummary:
+            snapshot.sharedLaneConsequence.lastBridgeOutcomeSummary
+        },
+        sharedConsumer: {
+          affectedSegment:
+            liveInteractionSnapshot.signalProvider.sharedLaneConsequence
+              .affectedSegment,
+          affectedTier:
+            liveInteractionSnapshot.signalProvider.sharedLaneConsequence
+              .affectedTier,
+          pressureDelta: round(
+            liveInteractionSnapshot.signalProvider.sharedLaneConsequence
+              .pressureDelta
+          ),
+          occupancyAdvantage: round(
+            liveInteractionSnapshot.signalProvider.sharedLaneConsequence
+              .occupancyAdvantage
+          ),
+          opportunityActive:
+            liveInteractionSnapshot.signalProvider.sharedLaneConsequence
+              .opportunityActive,
+          opportunityRemaining: round(
+            liveInteractionSnapshot.signalProvider.sharedLaneConsequence
+              .opportunityRemainingSeconds
+          ),
+          lastBridgeOutcomeKind:
+            liveInteractionSnapshot.signalProvider.sharedLaneConsequence
+              .lastBridgeOutcomeKind,
+          lastBridgeOutcomeSummary:
+            liveInteractionSnapshot.signalProvider.sharedLaneConsequence
+              .lastBridgeOutcomeSummary
         }
       },
       determinismProof: {

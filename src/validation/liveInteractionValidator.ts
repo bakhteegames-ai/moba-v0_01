@@ -8,6 +8,7 @@ import {
   createLivePrototypeSignalProvider,
   type LivePrototypeSignalProviderDebugState
 } from '../gameplay/livePrototypeSignalProvider';
+import { type HeadlessBridgeLaneConsequenceSnapshot } from '../gameplay/headlessBridgeConsequenceAdapter';
 import {
   type CalibrationResolution,
   type DefenderHoldState,
@@ -88,7 +89,10 @@ export interface LiveInteractionCalibrationOperatorControls {
 }
 
 export interface LiveInteractionValidator {
-  update(dt: number): void;
+  update(
+    dt: number,
+    sharedLaneConsequence?: HeadlessBridgeLaneConsequenceSnapshot
+  ): void;
   getDebugState(): LiveInteractionDebugState;
   getCalibrationOperatorControls(): LiveInteractionCalibrationOperatorControls;
   destroy(): void;
@@ -140,9 +144,9 @@ export const createLiveInteractionValidator = (): LiveInteractionValidator => {
   };
 
   return {
-    update(dt) {
+    update(dt, sharedLaneConsequence) {
       elapsedSinceRefresh += dt;
-      signalProvider.update(dt);
+      signalProvider.update(dt, sharedLaneConsequence);
       if (elapsedSinceRefresh < refreshIntervalSeconds) {
         return;
       }

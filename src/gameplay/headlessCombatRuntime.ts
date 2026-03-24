@@ -18,6 +18,11 @@ import {
   type HeadlessCombatLaneBridgeConfig,
   type HeadlessCombatLaneBridgeSnapshot
 } from '../combat/headlessCombatLaneBridge';
+import {
+  adaptHeadlessCombatLaneBridgeToLaneConsequence,
+  buildHeadlessBridgeLaneModifier,
+  type HeadlessBridgeLaneConsequenceSnapshot
+} from './headlessBridgeConsequenceAdapter';
 
 export interface HeadlessCombatRuntimeEntitySnapshot {
   id: string;
@@ -41,6 +46,7 @@ export interface HeadlessCombatRuntimeSnapshot {
   lastResolvedCast: CombatCastResolutionSnapshot | null;
   lastLegalityFailureReason: CombatCastFailureReason | 'none';
   laneBridge: HeadlessCombatLaneBridgeSnapshot;
+  sharedLaneConsequence: HeadlessBridgeLaneConsequenceSnapshot;
   laneDeterminismProof: HeadlessCombatLaneDeterminismProofSnapshot;
 }
 
@@ -173,6 +179,7 @@ export const createHeadlessCombatRuntime = (): HeadlessCombatRuntime => {
     },
     getSnapshot() {
       const simulationSnapshot = simulation.getSnapshot();
+      const laneBridgeSnapshot = laneBridge.getSnapshot();
       return {
         elapsedSeconds: simulationSnapshot.elapsedSeconds,
         fixedStepSeconds: simulationSnapshot.fixedStepSeconds,
@@ -188,7 +195,9 @@ export const createHeadlessCombatRuntime = (): HeadlessCombatRuntime => {
           : null,
         lastLegalityFailureReason:
           simulationSnapshot.lastLegalityFailureReason,
-        laneBridge: laneBridge.getSnapshot(),
+        laneBridge: laneBridgeSnapshot,
+        sharedLaneConsequence:
+          adaptHeadlessCombatLaneBridgeToLaneConsequence(laneBridgeSnapshot),
         laneDeterminismProof: { ...laneDeterminismProof }
       };
     }
@@ -264,7 +273,7 @@ const runLaneDeterminismProof = (
     passed,
     signature: firstSignature,
     summary: passed
-      ? 'Repeated fixed-step blocker-clear script produced the same macro consequence.'
+      ? 'Repeated fixed-step blocker-clear script produced the same shared lane consequence injection.'
       : 'Fixed-step blocker-clear script diverged between identical runs.'
   };
 };
@@ -340,17 +349,32 @@ const runDeterministicBridgeScenario = (
 
   const simulationSnapshot = proofSimulation.getSnapshot();
   const bridgeSnapshot = proofBridge.getSnapshot();
+  const sharedLaneConsequence =
+    adaptHeadlessCombatLaneBridgeToLaneConsequence(bridgeSnapshot);
+  const sharedLaneModifier =
+    buildHeadlessBridgeLaneModifier(sharedLaneConsequence);
   const blocker = getSnapshotEntity(simulationSnapshot, laneBlockerId);
 
   return [
     blocker.alive ? 'alive' : 'dead',
     blocker.currentHp,
-    bridgeSnapshot.blocker.lanePressureSegment,
-    bridgeSnapshot.blocker.structurePressureTier,
-    round(bridgeSnapshot.lanePressureDelta),
-    round(bridgeSnapshot.occupancyAdvantage),
-    round(bridgeSnapshot.opportunityWindowRemainingSeconds),
-    bridgeSnapshot.lastBridgeOutcome.kind
+    sharedLaneConsequence.affectedSegment,
+    sharedLaneConsequence.affectedTier,
+    round(sharedLaneConsequence.pressureDelta),
+    round(sharedLaneConsequence.occupancyAdvantage),
+    sharedLaneConsequence.opportunityActive ? 'active' : 'idle',
+    round(sharedLaneConsequence.opportunityRemainingSeconds),
+    round(
+      sharedLaneModifier.lanePressureBySegment[
+        sharedLaneConsequence.affectedSegment
+      ]
+    ),
+    round(
+      sharedLaneModifier.structurePressureByTier[
+        sharedLaneConsequence.affectedTier
+      ]
+    ),
+    sharedLaneConsequence.lastBridgeOutcomeKind
   ].join('|');
 };
 

@@ -80,6 +80,12 @@ import {
   type CalibrationOperatorDisposition,
   type CalibrationOperatorLoopClosureSnapshot
 } from './calibrationOperatorLoopClosure';
+import {
+  buildHeadlessBridgeLaneModifier,
+  cloneHeadlessBridgeLaneConsequenceSnapshot,
+  createDefaultHeadlessBridgeLaneConsequenceSnapshot,
+  type HeadlessBridgeLaneConsequenceSnapshot
+} from './headlessBridgeConsequenceAdapter';
 
 type SegmentValues = Record<LanePressureSegment, number>;
 type TierValues = Record<StructurePressureTier, number>;
@@ -132,6 +138,7 @@ export interface PrototypeLaneStateSnapshot {
   calibrationOperatorControls: CalibrationOperatorControlsSnapshot;
   calibrationOperatorWorkflow: CalibrationOperatorWorkflowGuideSnapshot;
   calibrationOperatorLoopClosure: CalibrationOperatorLoopClosureSnapshot;
+  sharedLaneConsequence: HeadlessBridgeLaneConsequenceSnapshot;
 }
 
 export interface PrototypeLaneOutcomeSample {
@@ -143,6 +150,9 @@ export interface PrototypeLaneOutcomeSample {
 
 export interface PrototypeLaneStateLoop {
   update(dt: number): void;
+  setSharedLaneConsequence(
+    consequence: HeadlessBridgeLaneConsequenceSnapshot
+  ): void;
   getSnapshot(): PrototypeLaneStateSnapshot;
   recordOutcome(sample: PrototypeLaneOutcomeSample): void;
   resetCalibrationDigest(): void;
@@ -202,6 +212,8 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
   const calibrationOperatorControls = createCalibrationOperatorControlsModel();
   const calibrationOperatorWorkflowGuide = createCalibrationOperatorWorkflowGuideModel();
   const calibrationOperatorLoopClosure = createCalibrationOperatorLoopClosureModel();
+  let sharedLaneConsequence =
+    createDefaultHeadlessBridgeLaneConsequenceSnapshot();
   const memory: LaneStateMemory = {
     elapsedSeconds: 0,
     carryoverPressureState: 1,
@@ -280,13 +292,18 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
       memory.elapsedSeconds += dt;
       occupancyProducer.update(dt);
       const occupancy = occupancyProducer.getSnapshot();
+      const sharedLaneModifier =
+        buildHeadlessBridgeLaneModifier(sharedLaneConsequence);
       structureEventTracker.update(
         dt,
         memory.elapsedSeconds,
-        buildStructureEventInput(occupancy)
+        buildStructureEventInput(occupancy, sharedLaneModifier)
       );
       const eventSnapshot = structureEventTracker.getSnapshot(memory.elapsedSeconds);
-      const structurePressureEstimate = buildStructurePressureEstimate(occupancy);
+      const structurePressureEstimate = buildStructurePressureEstimate(
+        occupancy,
+        sharedLaneModifier
+      );
       structureResolutionMemory.update(
         dt,
         memory.elapsedSeconds,
@@ -294,7 +311,10 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
         eventSnapshot
       );
       const resolutionSnapshot = structureResolutionMemory.getSnapshot();
-      const lanePressureEstimate = buildLanePressureEstimate(occupancy);
+      const lanePressureEstimate = buildLanePressureEstimate(
+        occupancy,
+        sharedLaneModifier
+      );
       laneClosurePosture.update(dt, {
         resolutionByTier: {
           outer: resolutionSnapshot.byTier.outer,
@@ -381,6 +401,10 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
       memory.carryoverPressureState = approach(memory.carryoverPressureState, carryoverTarget, dt * 0.35);
       memory.outcomeBias = approach(memory.outcomeBias, 0, dt * 0.09);
     },
+    setSharedLaneConsequence(consequence) {
+      sharedLaneConsequence =
+        cloneHeadlessBridgeLaneConsequenceSnapshot(consequence);
+    },
     getSnapshot() {
       const occupancy = occupancyProducer.getSnapshot();
       const eventSnapshot = structureEventTracker.getSnapshot(memory.elapsedSeconds);
@@ -422,7 +446,8 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
         calibrationPassReviewSnapshot,
         calibrationOperatorControlsSnapshot,
         calibrationOperatorWorkflowSnapshot,
-        calibrationOperatorLoopClosureSnapshot
+        calibrationOperatorLoopClosureSnapshot,
+        sharedLaneConsequence
       );
     },
     recordOutcome(sample) {
@@ -616,8 +641,11 @@ const computeSnapshot = (
   calibrationPassReviewSnapshot: CalibrationPassReviewHandoffSnapshot,
   calibrationOperatorControlsSnapshot: CalibrationOperatorControlsSnapshot,
   calibrationOperatorWorkflowSnapshot: CalibrationOperatorWorkflowGuideSnapshot,
-  calibrationOperatorLoopClosureSnapshot: CalibrationOperatorLoopClosureSnapshot
+  calibrationOperatorLoopClosureSnapshot: CalibrationOperatorLoopClosureSnapshot,
+  sharedLaneConsequenceSnapshot: HeadlessBridgeLaneConsequenceSnapshot
 ): PrototypeLaneStateSnapshot => {
+  const sharedLaneModifier =
+    buildHeadlessBridgeLaneModifier(sharedLaneConsequenceSnapshot);
   const phase = computePhase(occupancy.frontWaveSegment, occupancy.frontWaveProgress);
   const frontBoostOuter = occupancy.frontWaveSegment === 'outer-front' ? occupancy.frontWaveProgress : 0;
   const frontBoostInner = occupancy.frontWaveSegment === 'inner-siege' ? occupancy.frontWaveProgress : 0;
@@ -627,17 +655,26 @@ const computeSnapshot = (
 
   const waveOccupancyBySegment: SegmentValues = {
     'outer-front': clamp(
-      0.08 + occupancyPresence['outer-front'] * 0.68 + clamp(occupancy.segmentOccupancyCount['outer-front'] / 3, 0, 1) * 0.22,
+      0.08 +
+        occupancyPresence['outer-front'] * 0.68 +
+        clamp(occupancy.segmentOccupancyCount['outer-front'] / 3, 0, 1) * 0.22 +
+        sharedLaneModifier.occupancyBySegment['outer-front'],
       0,
       1
     ),
     'inner-siege': clamp(
-      0.08 + occupancyPresence['inner-siege'] * 0.7 + clamp(occupancy.segmentOccupancyCount['inner-siege'] / 3, 0, 1) * 0.22,
+      0.08 +
+        occupancyPresence['inner-siege'] * 0.7 +
+        clamp(occupancy.segmentOccupancyCount['inner-siege'] / 3, 0, 1) * 0.22 +
+        sharedLaneModifier.occupancyBySegment['inner-siege'],
       0,
       1
     ),
     'core-approach': clamp(
-      0.08 + occupancyPresence['core-approach'] * 0.72 + clamp(occupancy.segmentOccupancyCount['core-approach'] / 3, 0, 1) * 0.2,
+      0.08 +
+        occupancyPresence['core-approach'] * 0.72 +
+        clamp(occupancy.segmentOccupancyCount['core-approach'] / 3, 0, 1) * 0.2 +
+        sharedLaneModifier.occupancyBySegment['core-approach'],
       0,
       1
     )
@@ -648,7 +685,8 @@ const computeSnapshot = (
       0.17 +
         waveOccupancyBySegment['outer-front'] * 0.46 +
         occupancy.structureContactByTier.outer.pressure * 0.29 +
-        frontBoostOuter * 0.17,
+        frontBoostOuter * 0.17 +
+        sharedLaneModifier.lanePressureBySegment['outer-front'],
       0,
       1
     ),
@@ -657,7 +695,8 @@ const computeSnapshot = (
         waveOccupancyBySegment['inner-siege'] * 0.45 +
         occupancy.structureContactByTier.inner.pressure * 0.3 +
         frontBoostInner * 0.18 +
-        occupancy.consecutiveWaveCarryoverRelevance * 0.1,
+        occupancy.consecutiveWaveCarryoverRelevance * 0.1 +
+        sharedLaneModifier.lanePressureBySegment['inner-siege'],
       0,
       1
     ),
@@ -666,7 +705,8 @@ const computeSnapshot = (
         waveOccupancyBySegment['core-approach'] * 0.47 +
         occupancy.structureContactByTier.core.pressure * 0.31 +
         frontBoostCore * 0.2 +
-        occupancy.consecutiveWaveCarryoverRelevance * 0.09,
+        occupancy.consecutiveWaveCarryoverRelevance * 0.09 +
+        sharedLaneModifier.lanePressureBySegment['core-approach'],
       0,
       1
     )
@@ -705,19 +745,22 @@ const computeSnapshot = (
   const structurePressureByTier: TierValues = {
     outer: clamp(
       lanePressureBySegment['outer-front'] * 0.3 +
-        occupancy.structureContactByTier.outer.pressure * 0.7,
+        occupancy.structureContactByTier.outer.pressure * 0.7 +
+        sharedLaneModifier.structurePressureByTier.outer,
       0,
       1
     ),
     inner: clamp(
       lanePressureBySegment['inner-siege'] * 0.32 +
-        occupancy.structureContactByTier.inner.pressure * 0.68,
+        occupancy.structureContactByTier.inner.pressure * 0.68 +
+        sharedLaneModifier.structurePressureByTier.inner,
       0,
       1
     ),
     core: clamp(
       lanePressureBySegment['core-approach'] * 0.34 +
-        occupancy.structureContactByTier.core.pressure * 0.66,
+        occupancy.structureContactByTier.core.pressure * 0.66 +
+        sharedLaneModifier.structurePressureByTier.core,
       0,
       1
     )
@@ -879,6 +922,9 @@ const computeSnapshot = (
     ),
     calibrationOperatorLoopClosure: cloneCalibrationOperatorLoopClosureSnapshot(
       calibrationOperatorLoopClosureSnapshot
+    ),
+    sharedLaneConsequence: cloneHeadlessBridgeLaneConsequenceSnapshot(
+      sharedLaneConsequenceSnapshot
     )
   };
 };
@@ -912,7 +958,8 @@ const computeCarryoverTarget = (
   );
 
 const buildStructureEventInput = (
-  occupancy: PrototypeLaneOccupancySnapshot
+  occupancy: PrototypeLaneOccupancySnapshot,
+  sharedLaneModifier: ReturnType<typeof buildHeadlessBridgeLaneModifier>
 ): StructurePressureEventTrackerInput => {
   const segmentPresence = occupancy.segmentOccupancyPresence;
   const contact = occupancy.structureContactByTier;
@@ -920,52 +967,93 @@ const buildStructureEventInput = (
   return {
     byTier: {
       outer: {
-        pressure: clamp(contact.outer.pressure * 0.72 + segmentPresence['outer-front'] * 0.28, 0, 1),
+        pressure: clamp(
+          contact.outer.pressure * 0.72 +
+            segmentPresence['outer-front'] * 0.28 +
+            sharedLaneModifier.structurePressureByTier.outer,
+          0,
+          1
+        ),
         contactActive: contact.outer.active,
         contactWindowSeconds: contact.outer.windowSeconds,
-        lanePressure: clamp(segmentPresence['outer-front'] * 0.62 + contact.outer.pressure * 0.38, 0, 1)
+        lanePressure: clamp(
+          segmentPresence['outer-front'] * 0.62 +
+            contact.outer.pressure * 0.38 +
+            sharedLaneModifier.lanePressureBySegment['outer-front'],
+          0,
+          1
+        )
       },
       inner: {
-        pressure: clamp(contact.inner.pressure * 0.72 + segmentPresence['inner-siege'] * 0.28, 0, 1),
+        pressure: clamp(
+          contact.inner.pressure * 0.72 +
+            segmentPresence['inner-siege'] * 0.28 +
+            sharedLaneModifier.structurePressureByTier.inner,
+          0,
+          1
+        ),
         contactActive: contact.inner.active,
         contactWindowSeconds: contact.inner.windowSeconds,
-        lanePressure: clamp(segmentPresence['inner-siege'] * 0.62 + contact.inner.pressure * 0.38, 0, 1)
+        lanePressure: clamp(
+          segmentPresence['inner-siege'] * 0.62 +
+            contact.inner.pressure * 0.38 +
+            sharedLaneModifier.lanePressureBySegment['inner-siege'],
+          0,
+          1
+        )
       },
       core: {
-        pressure: clamp(contact.core.pressure * 0.72 + segmentPresence['core-approach'] * 0.28, 0, 1),
+        pressure: clamp(
+          contact.core.pressure * 0.72 +
+            segmentPresence['core-approach'] * 0.28 +
+            sharedLaneModifier.structurePressureByTier.core,
+          0,
+          1
+        ),
         contactActive: contact.core.active,
         contactWindowSeconds: contact.core.windowSeconds,
-        lanePressure: clamp(segmentPresence['core-approach'] * 0.62 + contact.core.pressure * 0.38, 0, 1)
+        lanePressure: clamp(
+          segmentPresence['core-approach'] * 0.62 +
+            contact.core.pressure * 0.38 +
+            sharedLaneModifier.lanePressureBySegment['core-approach'],
+          0,
+          1
+        )
       }
     }
   };
 };
 
 const buildStructurePressureEstimate = (
-  occupancy: PrototypeLaneOccupancySnapshot
+  occupancy: PrototypeLaneOccupancySnapshot,
+  sharedLaneModifier: ReturnType<typeof buildHeadlessBridgeLaneModifier>
 ): TierValues => ({
   outer: clamp(
     occupancy.structureContactByTier.outer.pressure * 0.72 +
-      occupancy.segmentOccupancyPresence['outer-front'] * 0.28,
+      occupancy.segmentOccupancyPresence['outer-front'] * 0.28 +
+      sharedLaneModifier.structurePressureByTier.outer,
     0,
     1
   ),
   inner: clamp(
     occupancy.structureContactByTier.inner.pressure * 0.72 +
-      occupancy.segmentOccupancyPresence['inner-siege'] * 0.28,
+      occupancy.segmentOccupancyPresence['inner-siege'] * 0.28 +
+      sharedLaneModifier.structurePressureByTier.inner,
     0,
     1
   ),
   core: clamp(
     occupancy.structureContactByTier.core.pressure * 0.72 +
-      occupancy.segmentOccupancyPresence['core-approach'] * 0.28,
+      occupancy.segmentOccupancyPresence['core-approach'] * 0.28 +
+      sharedLaneModifier.structurePressureByTier.core,
     0,
     1
   )
 });
 
 const buildLanePressureEstimate = (
-  occupancy: PrototypeLaneOccupancySnapshot
+  occupancy: PrototypeLaneOccupancySnapshot,
+  sharedLaneModifier: ReturnType<typeof buildHeadlessBridgeLaneModifier>
 ): SegmentValues => {
   const frontBoostOuter =
     occupancy.frontWaveSegment === 'outer-front' ? occupancy.frontWaveProgress : 0;
@@ -979,7 +1067,9 @@ const buildLanePressureEstimate = (
       0.18 +
         occupancy.segmentOccupancyPresence['outer-front'] * 0.5 +
         occupancy.structureContactByTier.outer.pressure * 0.24 +
-        frontBoostOuter * 0.14,
+        frontBoostOuter * 0.14 +
+        sharedLaneModifier.lanePressureBySegment['outer-front'] +
+        sharedLaneModifier.occupancyBySegment['outer-front'],
       0,
       1
     ),
@@ -988,7 +1078,9 @@ const buildLanePressureEstimate = (
         occupancy.segmentOccupancyPresence['inner-siege'] * 0.48 +
         occupancy.structureContactByTier.inner.pressure * 0.26 +
         frontBoostInner * 0.14 +
-        occupancy.consecutiveWaveCarryoverRelevance * 0.08,
+        occupancy.consecutiveWaveCarryoverRelevance * 0.08 +
+        sharedLaneModifier.lanePressureBySegment['inner-siege'] +
+        sharedLaneModifier.occupancyBySegment['inner-siege'],
       0,
       1
     ),
@@ -997,7 +1089,9 @@ const buildLanePressureEstimate = (
         occupancy.segmentOccupancyPresence['core-approach'] * 0.5 +
         occupancy.structureContactByTier.core.pressure * 0.27 +
         frontBoostCore * 0.15 +
-        occupancy.consecutiveWaveCarryoverRelevance * 0.09,
+        occupancy.consecutiveWaveCarryoverRelevance * 0.09 +
+        sharedLaneModifier.lanePressureBySegment['core-approach'] +
+        sharedLaneModifier.occupancyBySegment['core-approach'],
       0,
       1
     )

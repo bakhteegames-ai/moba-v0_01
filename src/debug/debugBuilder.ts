@@ -352,6 +352,8 @@ export const createDebugSystem = (
       `
       : '<div class="debug-muted">Wave-pressure simulation unavailable.</div>';
     const headlessCombat = state?.headlessCombat;
+    const sharedLaneConsequence =
+      state?.liveInteraction?.signalProvider.sharedLaneConsequence;
     const headlessCombatMarkup = headlessCombat
       ? `
         <div class="debug-muted">Hero: <span class="debug-strong">${formatCombatHitPoints(headlessCombat.player.currentHp, headlessCombat.player.maxHp)}</span> | alive <span class="debug-strong">${headlessCombat.player.alive ? 'Yes' : 'No'}</span> | cd <span class="debug-strong">${headlessCombat.player.basicAbilityCooldownRemaining.toFixed(2)}s</span></div>
@@ -359,6 +361,7 @@ export const createDebugSystem = (
         <div class="debug-muted">Last cast: <span class="debug-strong">${formatHeadlessCombatCastResult(headlessCombat.lastResolvedCast)}</span></div>
         <div class="debug-muted">Failure reason: <span class="debug-strong">${formatHeadlessCombatFailureReason(headlessCombat.lastLegalityFailureReason)}</span></div>
         <div class="debug-muted">Lane bridge: hero <span class="debug-strong">${formatPressureSegment(headlessCombat.laneBridge.hero.lanePressureSegment)}</span>, blocker <span class="debug-strong">${formatPressureSegment(headlessCombat.laneBridge.blocker.lanePressureSegment)}</span> / <span class="debug-strong">${formatStructureTier(headlessCombat.laneBridge.blocker.structurePressureTier)}</span> | pressure <span class="debug-strong">${formatSignedDelta(headlessCombat.laneBridge.lanePressureDelta)}</span> | occupancy <span class="debug-strong">${headlessCombat.laneBridge.occupancyAdvantage.toFixed(2)}</span> | opportunity <span class="debug-strong">${headlessCombat.laneBridge.structurePressureOpportunityActive ? 'Open' : 'Closed'}</span> ${headlessCombat.laneBridge.opportunityWindowRemainingSeconds.toFixed(2)}s</div>
+        <div class="debug-muted">Shared consumer: <span class="debug-strong">${sharedLaneConsequence ? `${formatPressureSegment(sharedLaneConsequence.affectedSegment)} / ${formatStructureTier(sharedLaneConsequence.affectedTier)}` : 'Unavailable'}</span> | pressure <span class="debug-strong">${sharedLaneConsequence ? formatSignedDelta(sharedLaneConsequence.pressureDelta) : 'n/a'}</span> | occupancy <span class="debug-strong">${sharedLaneConsequence ? sharedLaneConsequence.occupancyAdvantage.toFixed(2) : 'n/a'}</span> | ${sharedLaneConsequence?.opportunityActive ? 'active' : 'idle'} ${sharedLaneConsequence ? `${sharedLaneConsequence.opportunityRemainingSeconds.toFixed(2)}s` : ''}</div>
         <div class="debug-muted">Bridge outcome: <span class="debug-strong">${headlessCombat.laneBridge.lastBridgeOutcome.summary}</span> | proof <span class="debug-strong">${headlessCombat.laneDeterminismProof.passed ? 'Deterministic' : 'Mismatch'}</span></div>
       `
       : '<div class="debug-muted">Headless combat slice unavailable.</div>';

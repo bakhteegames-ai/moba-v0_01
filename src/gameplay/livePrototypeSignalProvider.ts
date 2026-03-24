@@ -68,6 +68,10 @@ import {
   type CalibrationOperatorLoopClosureSnapshot,
   type CalibrationOperatorLoopClosureState
 } from './calibrationOperatorLoopClosure';
+import {
+  cloneHeadlessBridgeLaneConsequenceSnapshot,
+  type HeadlessBridgeLaneConsequenceSnapshot
+} from './headlessBridgeConsequenceAdapter';
 
 type TierScalars = Record<StructurePressureTier, number>;
 type SegmentScalars = Record<LanePressureSegment, number>;
@@ -429,6 +433,7 @@ export interface LivePrototypeSignalProviderDebugState {
     frozenReviewRequired: boolean;
     decisionSignalSufficient: boolean;
   };
+  sharedLaneConsequence: HeadlessBridgeLaneConsequenceSnapshot;
   defenderStateByTier: Record<StructurePressureTier, DefenderHoldState>;
 }
 
@@ -448,10 +453,14 @@ export interface LivePrototypeSignalEventContext {
   calibrationOperatorControls: LivePrototypeSignalProviderDebugState['calibrationOperatorControls'];
   calibrationOperatorWorkflow: LivePrototypeSignalProviderDebugState['calibrationOperatorWorkflow'];
   calibrationOperatorLoopClosure: LivePrototypeSignalProviderDebugState['calibrationOperatorLoopClosure'];
+  sharedLaneConsequence: LivePrototypeSignalProviderDebugState['sharedLaneConsequence'];
 }
 
 export interface LivePrototypeSignalProvider {
-  update(dt: number): void;
+  update(
+    dt: number,
+    sharedLaneConsequence?: HeadlessBridgeLaneConsequenceSnapshot
+  ): void;
   getGlobalSignals(): LivePrototypeSignals;
   getScenarioSignals(
     context: LivePrototypeSignalScenarioContext
@@ -491,7 +500,10 @@ export const createLivePrototypeSignalProvider =
     };
 
     return {
-      update(dt) {
+      update(dt, sharedLaneConsequence) {
+        if (sharedLaneConsequence) {
+          laneStateLoop.setSharedLaneConsequence(sharedLaneConsequence);
+        }
         laneStateLoop.update(dt);
       },
       getGlobalSignals() {
@@ -551,7 +563,8 @@ export const createLivePrototypeSignalProvider =
           calibrationOperatorControls: cloneCalibrationOperatorControlsDebug(snapshot),
           calibrationOperatorWorkflow: cloneCalibrationOperatorWorkflowDebug(snapshot),
           calibrationOperatorLoopClosure:
-            cloneCalibrationOperatorLoopClosureDebug(snapshot)
+            cloneCalibrationOperatorLoopClosureDebug(snapshot),
+          sharedLaneConsequence: cloneSharedLaneConsequenceDebug(snapshot)
         };
       },
       getDebugState() {
@@ -595,6 +608,7 @@ export const createLivePrototypeSignalProvider =
           calibrationOperatorWorkflow: cloneCalibrationOperatorWorkflowDebug(snapshot),
           calibrationOperatorLoopClosure:
             cloneCalibrationOperatorLoopClosureDebug(snapshot),
+          sharedLaneConsequence: cloneSharedLaneConsequenceDebug(snapshot),
           defenderStateByTier: { ...snapshot.defenderStateByTier }
         };
       }
@@ -1457,6 +1471,11 @@ const cloneCalibrationOperatorLoopClosureSnapshot = (
   frozenReviewRequired: snapshot.frozenReviewRequired,
   decisionSignalSufficient: snapshot.decisionSignalSufficient
 });
+
+const cloneSharedLaneConsequenceDebug = (
+  snapshot: PrototypeLaneStateSnapshot
+): LivePrototypeSignalProviderDebugState['sharedLaneConsequence'] =>
+  cloneHeadlessBridgeLaneConsequenceSnapshot(snapshot.sharedLaneConsequence);
 
 const cloneSignals = (signals: LivePrototypeSignals): LivePrototypeSignals => ({
   wave: {
