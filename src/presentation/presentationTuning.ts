@@ -57,6 +57,36 @@ export const presentationTuning = {
     opacityRemainingSecondsMultiplier: 0.32,
     thickness: 0.08
   },
+  targetabilityCue: {
+    heightOffset: 0.18,
+    radiusBodyMultiplier: 3.2,
+    radiusClamp: {
+      min: 1.7,
+      max: 2.9
+    },
+    thickness: 0.05,
+    states: {
+      inRange: {
+        hex: '#7cc8a2',
+        emissive: 0.42,
+        opacity: 0.54
+      },
+      cooldown: {
+        hex: '#d8b36a',
+        emissive: 0.38,
+        opacity: 0.48
+      },
+      outOfRange: {
+        hex: '#d66059',
+        emissive: 0.46,
+        opacity: 0.6
+      },
+      blockedBoost: {
+        emissiveBonus: 0.16,
+        opacityBonus: 0.14
+      }
+    }
+  },
   indicatorBar: {
     width: 0.55,
     baseHeight: 0.3,
@@ -84,6 +114,36 @@ export const presentationTuning = {
     }
   },
   closureLevelNormalizationThreshold: 0.24,
+  hud: {
+    secondsFractionDigits: 1,
+    readinessPercentScale: 100,
+    resolvedFraction: 1,
+    text: {
+      ready: 'Ready',
+      legal: 'Legal',
+      inRange: 'In Range',
+      cooling: 'Cooling',
+      active: 'Active',
+      waiting: 'Waiting',
+      closed: 'Closed',
+      open: 'Open',
+      cleared: 'Cleared',
+      idle: 'Idle',
+      readySuffix: 'ready'
+    },
+    nextStep: {
+      moveIntoRange: 'Move Into Range',
+      castNow: 'Cast Now',
+      cooldownRecovering: 'Cooldown Recovering',
+      targetCleared: 'Target Cleared'
+    },
+    castFailureReasons: {
+      onCooldown: 'On Cooldown',
+      outOfRange: 'Out of Range',
+      deadActor: 'Actor Down',
+      invalidTarget: 'Invalid Target'
+    }
+  },
   materials: {
     cast: { hex: '#f4f0d8', emissive: 0.48, opacity: 0.86 },
     impact: { hex: '#ffd27a', emissive: 0.72, opacity: 0.86 },

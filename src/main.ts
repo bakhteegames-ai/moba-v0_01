@@ -363,6 +363,8 @@ debugWindow.render_game_to_text = (): string => {
       presentation: {
         castPulseActive: presentationSnapshot.castPulseActive,
         impactPulseActive: presentationSnapshot.impactPulseActive,
+        targetCueActive: presentationSnapshot.targetCueActive,
+        targetCueState: presentationSnapshot.targetCueState,
         defenderCueActive: presentationSnapshot.defenderCueActive,
         pushCueActive: presentationSnapshot.pushCueActive,
         sourceTier: presentationSnapshot.sourceTier,

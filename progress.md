@@ -228,3 +228,9 @@ Original prompt: HEADLESS MACRO-CORE CONSOLIDATION PASS. Under macro-core featur
 - TODO if continuing:
 - If another consolidation pass happens, prioritize other closure-path blind scalars only where they are clearly active and worth centralizing; do not start a generic utilities/config crusade.
 - Keep browser-proof reliance on `render_game_to_text` until the separate black-screenshot capture issue is resolved.
+
+- 2026-03-24: Aggregated Combat chip cleanup pass kept behavior unchanged by extracting a small authoritative combat-state helper in src/presentation/playerFacingHud.ts. DOM proof still showed Out of Range -> In Range -> Cooling and determinismProof.passed stayed true.
+
+- 2026-03-24: Added a thin authoritative Next chip in src/presentation/playerFacingHud.ts. DOM proof showed Move Into Range -> Cast Now -> Cooldown Recovering while targetCueState stayed aligned and determinismProof.passed remained true.
+
+- 2026-03-24: Next chip cleanup pass unified Combat/Next mapping into one helper in src/presentation/playerFacingHud.ts. DOM proof stayed Move Into Range -> Cast Now -> Cooldown Recovering and determinismProof.passed remained true.

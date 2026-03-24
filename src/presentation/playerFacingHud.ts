@@ -1,5 +1,6 @@
 import { type HeadlessCombatRuntimeSnapshot } from '../gameplay/headlessCombatRuntime';
 import { type LivePrototypeSignalProviderDebugState } from '../gameplay/livePrototypeSignalProvider';
+import { presentationTuning } from './presentationTuning';
 
 type HudSignals = Pick<
   LivePrototypeSignalProviderDebugState,
@@ -31,6 +32,38 @@ interface HudMeter {
   fill: HTMLDivElement;
 }
 
+type HudTone =
+  | 'ready'
+  | 'blocked'
+  | 'active'
+  | 'contest'
+  | 'recovery'
+  | 'resolved'
+  | 'idle';
+
+interface HudStatus {
+  value: string;
+  tone: HudTone;
+}
+
+interface HudMeterState {
+  value: string;
+  fraction: number;
+  active: boolean;
+}
+
+interface AggregatedCombatHudStatuses {
+  combat: HudStatus;
+  next: HudStatus;
+}
+
+type AggregatedCombatState =
+  | 'dead-actor'
+  | 'cleared'
+  | 'out-of-range'
+  | 'cooldown'
+  | 'in-range';
+
 export const createPlayerFacingHud = (): PlayerFacingHud => {
   const root = document.createElement('div');
   root.id = 'player-hud-root';
@@ -39,12 +72,16 @@ export const createPlayerFacingHud = (): PlayerFacingHud => {
   panel.className = 'player-hud';
   root.appendChild(panel);
 
+  const focusRow = createRow();
   const topRow = createRow();
   const statusRow = createRow();
   const meterColumn = document.createElement('div');
   meterColumn.className = 'player-hud-meter-column';
 
+  const combatChip = createChip('Combat');
+  const nextChip = createChip('Next');
   const abilityChip = createChip('Ability');
+  const castChip = createChip('Cast');
   const targetChip = createChip('Target');
   const siegeChip = createChip('Siege');
   const contestChip = createChip('Contest');
@@ -52,111 +89,77 @@ export const createPlayerFacingHud = (): PlayerFacingHud => {
   const structureMeter = createMeter('Structure');
   const closureMeter = createMeter('Closure');
 
-  topRow.append(abilityChip.root, targetChip.root);
+  focusRow.append(combatChip.root, nextChip.root);
+  topRow.append(abilityChip.root, castChip.root, targetChip.root);
   statusRow.append(siegeChip.root, contestChip.root, recoveryChip.root);
   meterColumn.append(structureMeter.root, closureMeter.root);
-  panel.append(topRow, statusRow, meterColumn);
+  panel.append(focusRow, topRow, statusRow, meterColumn);
   document.body.appendChild(root);
 
   return {
     update(_dt, input) {
-      const cooldownRemaining = input.combat.player.basicAbilityCooldownRemaining;
+      const combatState = deriveAggregatedCombatState(input.combat);
+      const combatHudStatuses = deriveAggregatedCombatHudStatuses(
+        combatState,
+        input.combat.player.basicAbilityCooldownRemaining
+      );
+      updateChip(
+        combatChip,
+        combatHudStatuses.combat
+      );
+      updateChip(nextChip, combatHudStatuses.next);
       updateChip(
         abilityChip,
-        cooldownRemaining > 0
-          ? `Cooling ${formatSeconds(cooldownRemaining)}`
-          : 'Ready',
-        cooldownRemaining > 0 ? 'blocked' : 'ready'
+        deriveAbilityStatus(input.combat.player.basicAbilityCooldownRemaining)
+      );
+      updateChip(
+        castChip,
+        deriveCastStatus(
+          input.combat.lastLegalityFailureReason,
+          input.combat.lastResolvedCast,
+          input.combat.player.basicAbilityCooldownRemaining
+        )
       );
       updateChip(
         targetChip,
-        input.combat.target.alive
-          ? `${input.combat.target.currentHp}/${input.combat.target.maxHp}`
-          : 'Cleared',
-        input.combat.target.alive ? 'active' : 'resolved'
+        deriveTargetStatus(
+          input.combat.target.alive,
+          input.combat.target.currentHp,
+          input.combat.target.maxHp
+        )
       );
       updateChip(
         siegeChip,
-        input.signals.sharedSiegeWindow.siegeWindowActive
-          ? `Open ${formatSeconds(
-              input.signals.sharedSiegeWindow.siegeWindowRemainingSeconds
-            )}`
-          : 'Closed',
-        input.signals.sharedSiegeWindow.siegeWindowActive ? 'active' : 'idle'
+        deriveSiegeStatus(
+          input.signals.sharedSiegeWindow.siegeWindowActive,
+          input.signals.sharedSiegeWindow.siegeWindowRemainingSeconds
+        )
       );
       updateChip(
         contestChip,
-        input.signals.sharedDefenderResponse.responseActive
-          ? 'Active'
-          : input.signals.sharedDefenderResponse.responseCooldownRemaining > 0
-            ? `Cooling ${formatSeconds(
-                input.signals.sharedDefenderResponse.responseCooldownRemaining
-              )}`
-            : 'Waiting',
-        input.signals.sharedDefenderResponse.responseActive
-          ? 'contest'
-          : input.signals.sharedDefenderResponse.responseEligible
-            ? 'active'
-            : 'idle'
+        deriveTimedWindowStatus(
+          input.signals.sharedDefenderResponse.responseActive,
+          input.signals.sharedDefenderResponse.responseEligible,
+          input.signals.sharedDefenderResponse.responseCooldownRemaining,
+          'contest'
+        )
       );
       updateChip(
         recoveryChip,
-        input.signals.sharedPushReassertion.recoveryActive
-          ? 'Active'
-          : input.signals.sharedPushReassertion.recoveryCooldownRemaining > 0
-            ? `Cooling ${formatSeconds(
-                input.signals.sharedPushReassertion.recoveryCooldownRemaining
-              )}`
-            : 'Waiting',
-        input.signals.sharedPushReassertion.recoveryActive
-          ? 'recovery'
-          : input.signals.sharedPushReassertion.recoveryEligible
-            ? 'active'
-            : 'idle'
+        deriveTimedWindowStatus(
+          input.signals.sharedPushReassertion.recoveryActive,
+          input.signals.sharedPushReassertion.recoveryEligible,
+          input.signals.sharedPushReassertion.recoveryCooldownRemaining,
+          'recovery'
+        )
       );
-
-      const structureFraction =
-        input.signals.sharedStructureConversion.conversionThreshold > 0
-          ? input.signals.sharedStructureConversion.conversionProgress /
-            input.signals.sharedStructureConversion.conversionThreshold
-          : 0;
       updateMeter(
         structureMeter,
-        input.signals.sharedStructureConversion.lastResolvedStructureStep !== 'none'
-          ? input.signals.sharedStructureConversion.lastResolvedStructureStep
-          : input.signals.sharedStructureConversion.conversionActive
-            ? `${input.signals.sharedStructureConversion.conversionProgress.toFixed(
-                2
-              )} / ${input.signals.sharedStructureConversion.conversionThreshold.toFixed(
-                2
-              )}`
-            : 'Idle',
-        input.signals.sharedStructureConversion.lastResolvedStructureStep !== 'none'
-          ? 1
-          : structureFraction,
-        input.signals.sharedStructureConversion.conversionActive ||
-          input.signals.sharedStructureConversion.lastResolvedStructureStep !==
-            'none'
+        deriveStructureMeterState(input.signals.sharedStructureConversion)
       );
-
-      const closureFraction =
-        input.signals.sharedClosureAdvancement.lastResolvedClosureStep !== 'none'
-          ? 1
-          : input.signals.sharedClosureAdvancement.closureAdvancementActive
-            ? input.signals.sharedClosureAdvancement.readinessLevel
-            : 0;
       updateMeter(
         closureMeter,
-        input.signals.sharedClosureAdvancement.lastResolvedClosureStep !== 'none'
-          ? input.signals.sharedClosureAdvancement.lastResolvedClosureStep
-          : input.signals.sharedClosureAdvancement.closureAdvancementActive
-            ? `${Math.round(
-                input.signals.sharedClosureAdvancement.readinessLevel * 100
-              )}% ready`
-            : 'Idle',
-        closureFraction,
-        input.signals.sharedClosureAdvancement.closureAdvancementActive ||
-          input.signals.sharedClosureAdvancement.lastResolvedClosureStep !== 'none'
+        deriveClosureMeterState(input.signals.sharedClosureAdvancement)
       );
     },
     destroy() {
@@ -216,25 +219,288 @@ const createMeter = (label: string): HudMeter => {
 
 const updateChip = (
   chip: HudChip,
-  value: string,
-  tone: 'ready' | 'blocked' | 'active' | 'contest' | 'recovery' | 'resolved' | 'idle'
+  status: HudStatus
 ): void => {
-  chip.value.textContent = value;
-  chip.root.dataset.tone = tone;
+  chip.value.textContent = status.value;
+  chip.root.dataset.tone = status.tone;
 };
 
 const updateMeter = (
   meter: HudMeter,
-  value: string,
-  fraction: number,
-  active: boolean
+  state: HudMeterState
 ): void => {
-  meter.value.textContent = value;
-  meter.fill.style.transform = `scaleX(${clamp(fraction, 0, 1)})`;
-  meter.root.dataset.active = active ? 'true' : 'false';
+  meter.value.textContent = state.value;
+  meter.fill.style.transform = `scaleX(${clamp(state.fraction, 0, 1)})`;
+  meter.root.dataset.active = state.active ? 'true' : 'false';
 };
 
-const formatSeconds = (seconds: number): string => `${seconds.toFixed(1)}s`;
+const deriveAbilityStatus = (cooldownRemaining: number): HudStatus =>
+  cooldownRemaining > 0
+    ? buildCoolingStatus(cooldownRemaining, 'blocked')
+    : {
+        value: presentationTuning.hud.text.ready,
+        tone: 'ready'
+      };
+
+const deriveAggregatedCombatState = (
+  combat: HeadlessCombatRuntimeSnapshot
+): AggregatedCombatState => {
+  if (!combat.player.alive) {
+    return 'dead-actor';
+  }
+
+  if (!combat.target.alive) {
+    return 'cleared';
+  }
+
+  if (!isTargetWithinCastRange(combat)) {
+    return 'out-of-range';
+  }
+
+  return combat.player.basicAbilityCooldownRemaining > 0
+    ? 'cooldown'
+    : 'in-range';
+};
+
+const deriveAggregatedCombatHudStatuses = (
+  state: AggregatedCombatState,
+  cooldownRemaining: number
+): AggregatedCombatHudStatuses =>
+  state === 'dead-actor'
+    ? {
+        combat: buildStaticStatus(
+          presentationTuning.hud.castFailureReasons.deadActor,
+          'blocked'
+        ),
+        next: buildStaticStatus(
+          presentationTuning.hud.castFailureReasons.deadActor,
+          'blocked'
+        )
+      }
+    : state === 'cleared'
+      ? {
+          combat: buildStaticStatus(
+            presentationTuning.hud.text.cleared,
+            'resolved'
+          ),
+          next: buildStaticStatus(
+            presentationTuning.hud.nextStep.targetCleared,
+            'resolved'
+          )
+        }
+      : state === 'out-of-range'
+        ? {
+            combat: buildStaticStatus(
+              presentationTuning.hud.castFailureReasons.outOfRange,
+              'blocked'
+            ),
+            next: buildStaticStatus(
+              presentationTuning.hud.nextStep.moveIntoRange,
+              'blocked'
+            )
+          }
+        : state === 'cooldown'
+          ? {
+              combat: buildCoolingStatus(cooldownRemaining, 'blocked'),
+              next: buildStaticStatus(
+                `${presentationTuning.hud.nextStep.cooldownRecovering} ${formatSeconds(
+                  cooldownRemaining
+                )}`,
+                'blocked'
+              )
+            }
+          : {
+              combat: buildStaticStatus(
+                presentationTuning.hud.text.inRange,
+                'ready'
+              ),
+              next: buildStaticStatus(
+                presentationTuning.hud.nextStep.castNow,
+                'ready'
+              )
+            };
+
+const isTargetWithinCastRange = (
+  combat: HeadlessCombatRuntimeSnapshot
+): boolean => {
+  const maxCastDistance =
+    combat.castRange + combat.player.bodyRadius + combat.target.bodyRadius;
+  const targetDistance = Math.hypot(
+    combat.target.position.x - combat.player.position.x,
+    combat.target.position.z - combat.player.position.z
+  );
+
+  return targetDistance <= maxCastDistance;
+};
+
+const deriveCastStatus = (
+  lastLegalityFailureReason: HeadlessCombatRuntimeSnapshot['lastLegalityFailureReason'],
+  lastResolvedCast: HeadlessCombatRuntimeSnapshot['lastResolvedCast'],
+  cooldownRemaining: number
+): HudStatus => {
+  if (lastLegalityFailureReason !== 'none') {
+    return {
+      value: formatCastFailureReason(lastLegalityFailureReason),
+      tone: 'blocked'
+    };
+  }
+
+  if (lastResolvedCast?.success === false && lastResolvedCast.failureReason) {
+    return {
+      value: formatCastFailureReason(lastResolvedCast.failureReason),
+      tone: 'blocked'
+    };
+  }
+
+  if (cooldownRemaining > 0) {
+    return {
+      value: presentationTuning.hud.castFailureReasons.onCooldown,
+      tone: 'blocked'
+    };
+  }
+
+  return {
+    value: presentationTuning.hud.text.legal,
+    tone: 'ready'
+  };
+};
+
+const deriveTargetStatus = (
+  alive: boolean,
+  currentHp: number,
+  maxHp: number
+): HudStatus =>
+  alive
+    ? {
+        value: `${currentHp}/${maxHp}`,
+        tone: 'active'
+      }
+    : {
+        value: presentationTuning.hud.text.cleared,
+        tone: 'resolved'
+      };
+
+const deriveSiegeStatus = (
+  active: boolean,
+  remainingSeconds: number
+): HudStatus =>
+  active
+    ? {
+        value: `${presentationTuning.hud.text.open} ${formatSeconds(
+          remainingSeconds
+        )}`,
+        tone: 'active'
+      }
+    : {
+        value: presentationTuning.hud.text.closed,
+        tone: 'idle'
+      };
+
+const deriveTimedWindowStatus = (
+  active: boolean,
+  eligible: boolean,
+  cooldownRemaining: number,
+  activeTone: Extract<HudTone, 'contest' | 'recovery'>
+): HudStatus =>
+  active
+    ? {
+        value: presentationTuning.hud.text.active,
+        tone: activeTone
+      }
+    : cooldownRemaining > 0
+      ? buildCoolingStatus(cooldownRemaining, eligible ? 'active' : 'idle')
+      : {
+          value: presentationTuning.hud.text.waiting,
+          tone: eligible ? 'active' : 'idle'
+        };
+
+const deriveStructureMeterState = (
+  structureConversion: HudSignals['sharedStructureConversion']
+): HudMeterState => {
+  if (structureConversion.lastResolvedStructureStep !== 'none') {
+    return {
+      value: structureConversion.lastResolvedStructureStep,
+      fraction: presentationTuning.hud.resolvedFraction,
+      active: true
+    };
+  }
+
+  if (structureConversion.conversionActive) {
+    return {
+      value: `${structureConversion.conversionProgress.toFixed(2)} / ${structureConversion.conversionThreshold.toFixed(2)}`,
+      fraction:
+        structureConversion.conversionThreshold > 0
+          ? structureConversion.conversionProgress /
+            structureConversion.conversionThreshold
+          : 0,
+      active: true
+    };
+  }
+
+  return {
+    value: presentationTuning.hud.text.idle,
+    fraction: 0,
+    active: false
+  };
+};
+
+const deriveClosureMeterState = (
+  closureAdvancement: HudSignals['sharedClosureAdvancement']
+): HudMeterState => {
+  if (closureAdvancement.lastResolvedClosureStep !== 'none') {
+    return {
+      value: closureAdvancement.lastResolvedClosureStep,
+      fraction: presentationTuning.hud.resolvedFraction,
+      active: true
+    };
+  }
+
+  if (closureAdvancement.closureAdvancementActive) {
+    return {
+      value: `${Math.round(
+        closureAdvancement.readinessLevel *
+          presentationTuning.hud.readinessPercentScale
+      )}% ${presentationTuning.hud.text.readySuffix}`,
+      fraction: closureAdvancement.readinessLevel,
+      active: true
+    };
+  }
+
+  return {
+    value: presentationTuning.hud.text.idle,
+    fraction: 0,
+    active: false
+  };
+};
+
+const buildCoolingStatus = (
+  cooldownRemaining: number,
+  tone: Extract<HudTone, 'blocked' | 'active' | 'idle'>
+): HudStatus => ({
+  value: `${presentationTuning.hud.text.cooling} ${formatSeconds(
+    cooldownRemaining
+  )}`,
+  tone
+});
+
+const buildStaticStatus = (value: string, tone: HudTone): HudStatus => ({
+  value,
+  tone
+});
+
+const formatSeconds = (seconds: number): string =>
+  `${seconds.toFixed(presentationTuning.hud.secondsFractionDigits)}s`;
+
+const formatCastFailureReason = (
+  reason: Exclude<HeadlessCombatRuntimeSnapshot['lastLegalityFailureReason'], 'none'>
+): string =>
+  reason === 'on-cooldown'
+    ? presentationTuning.hud.castFailureReasons.onCooldown
+    : reason === 'out-of-range'
+      ? presentationTuning.hud.castFailureReasons.outOfRange
+      : reason === 'dead-actor'
+        ? presentationTuning.hud.castFailureReasons.deadActor
+        : presentationTuning.hud.castFailureReasons.invalidTarget;
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.max(min, Math.min(max, value));

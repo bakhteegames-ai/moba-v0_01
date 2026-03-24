@@ -46,6 +46,7 @@ export interface HeadlessCombatRuntimeSnapshot {
   elapsedSeconds: number;
   fixedStepSeconds: number;
   abilityId: CombatAbilityId;
+  castRange: number;
   player: HeadlessCombatRuntimeEntitySnapshot;
   target: HeadlessCombatRuntimeEntitySnapshot;
   lastResolvedCast: CombatCastResolutionSnapshot | null;
@@ -192,6 +193,7 @@ export const createHeadlessCombatRuntime = (): HeadlessCombatRuntime => {
         elapsedSeconds: simulationSnapshot.elapsedSeconds,
         fixedStepSeconds: simulationSnapshot.fixedStepSeconds,
         abilityId: basicAbility.id,
+        castRange: basicAbility.castRange,
         player: toRuntimeEntitySnapshot(
           getSnapshotEntity(simulationSnapshot, playerHeroId)
         ),

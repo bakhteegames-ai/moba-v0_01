@@ -26,6 +26,8 @@ export interface AuthoritativePresentationShellInput {
 export interface AuthoritativePresentationShellDebugState {
   castPulseActive: boolean;
   impactPulseActive: boolean;
+  targetCueActive: boolean;
+  targetCueState: 'hidden' | 'in-range' | 'cooldown' | 'out-of-range';
   defenderCueActive: boolean;
   pushCueActive: boolean;
   sourceTier: 'outer' | 'inner' | 'core';
@@ -52,6 +54,17 @@ interface CueMaterialBinding {
   material: pc.StandardMaterial;
   color: pc.Color;
 }
+
+interface DiscCueScale {
+  radius: number;
+  thickness: number;
+}
+
+type TargetabilityCueState =
+  | 'hidden'
+  | 'in-range'
+  | 'cooldown'
+  | 'out-of-range';
 
 type PresentationTier = keyof typeof presentationTuning.indicatorBar.tierOffsets;
 
@@ -87,6 +100,9 @@ export const createAuthoritativePresentationShell = (
     root,
     presentationTuning.castPulse.diameter
   );
+  const targetabilityMaterial = createCueMaterial(
+    presentationTuning.targetabilityCue.states.outOfRange
+  );
   const impactPulse = createSphereCue(
     'ImpactPulseCue',
     impactMaterial.material,
@@ -96,12 +112,29 @@ export const createAuthoritativePresentationShell = (
   const defenderCue = createDiscCue(
     'DefenderContestCue',
     defenderMaterial.material,
-    root
+    root,
+    {
+      radius: presentationTuning.contestCue.diameter,
+      thickness: presentationTuning.contestCue.thickness
+    }
   );
   const pushCue = createDiscCue(
     'PushReassertionCue',
     pushMaterial.material,
-    root
+    root,
+    {
+      radius: presentationTuning.contestCue.diameter,
+      thickness: presentationTuning.contestCue.thickness
+    }
+  );
+  const targetabilityCue = createDiscCue(
+    'TargetabilityCue',
+    targetabilityMaterial.material,
+    root,
+    {
+      radius: presentationTuning.targetabilityCue.radiusClamp.max,
+      thickness: presentationTuning.targetabilityCue.thickness
+    }
   );
 
   const indicatorRoot = new pc.Entity('MacroIndicatorRoot');
@@ -135,6 +168,8 @@ export const createAuthoritativePresentationShell = (
   let debugState: AuthoritativePresentationShellDebugState = {
     castPulseActive: false,
     impactPulseActive: false,
+    targetCueActive: false,
+    targetCueState: 'hidden',
     defenderCueActive: false,
     pushCueActive: false,
     sourceTier: 'outer',
@@ -202,6 +237,14 @@ export const createAuthoritativePresentationShell = (
 
       updateCastPulseCue(castPulse, castMaterial, castPulseState);
       updateImpactPulseCue(impactPulse, impactMaterial, impactPulseState);
+      const targetabilityCueState = deriveTargetabilityCueState(input.combat);
+      updateTargetabilityCue(
+        targetabilityCue,
+        targetabilityMaterial,
+        registry,
+        input.combat,
+        targetabilityCueState
+      );
       updateContestCue(
         defenderCue,
         defenderMaterial,
@@ -267,6 +310,8 @@ export const createAuthoritativePresentationShell = (
       debugState = {
         castPulseActive: castPulse.enabled,
         impactPulseActive: impactPulse.enabled,
+        targetCueActive: targetabilityCue.enabled,
+        targetCueState: targetabilityCueState,
         defenderCueActive: defenderCue.enabled,
         pushCueActive: pushCue.enabled,
         sourceTier: input.signals.sharedSiegeWindow.sourceTier,
@@ -329,18 +374,15 @@ const createSphereCue = (
 const createDiscCue = (
   name: string,
   material: pc.StandardMaterial,
-  parent: pc.Entity
+  parent: pc.Entity,
+  scale: DiscCueScale
 ): pc.Entity => {
   const entity = new pc.Entity(name);
   entity.addComponent('render', {
     type: 'cylinder',
     material
   });
-  entity.setLocalScale(
-    presentationTuning.contestCue.diameter,
-    presentationTuning.contestCue.thickness,
-    presentationTuning.contestCue.diameter
-  );
+  entity.setLocalScale(scale.radius, scale.thickness, scale.radius);
   entity.enabled = false;
   parent.addChild(entity);
   return entity;
@@ -429,6 +471,50 @@ const updateImpactPulseCue = (
       presentationTuning.impactPulse.opacityRange.min,
       normalized
     )
+  );
+};
+
+const updateTargetabilityCue = (
+  entity: pc.Entity,
+  material: CueMaterialBinding,
+  registry: SceneRegistry,
+  combat: HeadlessCombatRuntimeSnapshot,
+  state: TargetabilityCueState
+): void => {
+  if (state === 'hidden') {
+    entity.enabled = false;
+    return;
+  }
+
+  entity.enabled = true;
+  const targetWorld = toWorldPoint(
+    registry,
+    combat.target.position.x,
+    combat.target.position.z,
+    presentationTuning.targetabilityCue.heightOffset
+  );
+  const radius = clamp(
+    combat.target.bodyRadius *
+      presentationTuning.targetabilityCue.radiusBodyMultiplier,
+    presentationTuning.targetabilityCue.radiusClamp.min,
+    presentationTuning.targetabilityCue.radiusClamp.max
+  );
+  entity.setPosition(targetWorld);
+  entity.setLocalScale(
+    radius,
+    presentationTuning.targetabilityCue.thickness,
+    radius
+  );
+
+  const stateStyle = getTargetabilityCueStyle(
+    state,
+    combat.lastLegalityFailureReason === 'out-of-range'
+  );
+  applyMaterialState(
+    material,
+    stateStyle.emissive,
+    stateStyle.opacity,
+    stateStyle.hex
   );
 };
 
@@ -535,6 +621,61 @@ const resolvePresentationAnchor = (
   };
 };
 
+const deriveTargetabilityCueState = (
+  combat: HeadlessCombatRuntimeSnapshot
+): TargetabilityCueState => {
+  if (!combat.target.alive) {
+    return 'hidden';
+  }
+
+  const maxCastDistance =
+    combat.castRange + combat.player.bodyRadius + combat.target.bodyRadius;
+  const targetDistance = Math.hypot(
+    combat.target.position.x - combat.player.position.x,
+    combat.target.position.z - combat.player.position.z
+  );
+
+  if (targetDistance > maxCastDistance) {
+    return 'out-of-range';
+  }
+
+  if (combat.player.basicAbilityCooldownRemaining > 0) {
+    return 'cooldown';
+  }
+
+  return 'in-range';
+};
+
+const getTargetabilityCueStyle = (
+  state: Exclude<TargetabilityCueState, 'hidden'>,
+  boostBlockedOutOfRange: boolean
+): {
+  hex: string;
+  emissive: number;
+  opacity: number;
+} => {
+  const baseStyle =
+    state === 'in-range'
+      ? presentationTuning.targetabilityCue.states.inRange
+      : state === 'cooldown'
+        ? presentationTuning.targetabilityCue.states.cooldown
+        : presentationTuning.targetabilityCue.states.outOfRange;
+
+  if (!boostBlockedOutOfRange || state !== 'out-of-range') {
+    return baseStyle;
+  }
+
+  return {
+    hex: baseStyle.hex,
+    emissive:
+      baseStyle.emissive +
+      presentationTuning.targetabilityCue.states.blockedBoost.emissiveBonus,
+    opacity:
+      baseStyle.opacity +
+      presentationTuning.targetabilityCue.states.blockedBoost.opacityBonus
+  };
+};
+
 const getIndicatorOffset = (
   tier: PresentationTier
 ): pc.Vec3 => indicatorOffsetByTier[tier];
@@ -581,8 +722,15 @@ const lerpNumber = (start: number, end: number, t: number): number =>
 const applyMaterialState = (
   binding: CueMaterialBinding,
   emissiveScalar: number,
-  opacity: number
+  opacity: number,
+  hex?: string
 ): void => {
+  if (hex) {
+    const color = colorFromHex(hex);
+    binding.color = color;
+    binding.material.diffuse = color.clone();
+  }
+
   binding.material.emissive = binding.color.clone().mulScalar(emissiveScalar);
   binding.material.opacity = opacity;
   binding.material.update();
