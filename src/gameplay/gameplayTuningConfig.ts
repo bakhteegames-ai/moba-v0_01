@@ -151,6 +151,206 @@ export const gameplayTuningConfig = {
     firedStructureRecovery: 0.08,
     firedClosureRecovery: 0.13
   },
+  closureDoctrineFitEvaluator: {
+    minimumCycleSeconds: 6,
+    scalarClamp: {
+      min: 0.95,
+      max: 1.08
+    },
+    initialLevels: {
+      doctrineFit: 0.72,
+      earlySiegeBias: 0.16,
+      lateClosureDrag: 0.18,
+      resetCadenceRisk: 0.16,
+      antiStallOverhang: 0.17,
+      retuningUrgency: 0.18
+    },
+    initialCalibrationScalars: {
+      doctrineFitScalar: 1.03,
+      earlySiegeBiasScalar: 0.995,
+      lateClosureDragScalar: 0.995,
+      resetCadenceRiskScalar: 0.995,
+      antiStallOverhangScalar: 0.995,
+      retuningUrgencyScalar: 0.992
+    },
+    blendRatePerSecond: 0.9,
+    blendClamp: {
+      min: 0.08,
+      max: 1
+    },
+    earlySiegeBias: {
+      weights: {
+        healthBias: 0.34,
+        risingAntiStallTimingRisk: 0.17,
+        closureReadinessTimingRisk: 0.23,
+        acceleratedClosureWindowTimingRisk: 0.12,
+        currentStateBias: 0.1,
+        progressionOrderPenalty: 0.12,
+        escalationTimingPenalty: 0.08
+      },
+      timingThresholdCycleFractions: {
+        risingAntiStall: 0.22,
+        closureReadiness: 0.48,
+        acceleratedClosureWindow: 0.8
+      },
+      stateBiases: {
+        closureReadiness: {
+          latestCycleFraction: 0.55,
+          bias: 0.72
+        },
+        acceleratedClosureWindow: {
+          latestCycleFraction: 0.9,
+          bias: 0.88
+        },
+        risingAntiStall: {
+          latestCycleFraction: 0.25,
+          bias: 0.52
+        }
+      }
+    },
+    lateClosureDrag: {
+      weights: {
+        healthBias: 0.29,
+        risingAntiStallTimingRisk: 0.12,
+        closureReadinessTimingRisk: 0.25,
+        acceleratedClosureWindowTimingRisk: 0.11,
+        currentStateBias: 0.08,
+        prolongedReadinessRisk: 0.1,
+        escalationTimingPenalty: 0.05
+      },
+      timingThresholdCycleMultipliers: {
+        risingAntiStall: {
+          max: 2.2,
+          overdue: 2.6
+        },
+        closureReadiness: {
+          max: 3.1,
+          overdue: 3.6
+        },
+        acceleratedClosureWindow: {
+          max: 4.2,
+          overdue: 4.8
+        }
+      },
+      stateBiases: {
+        normalPressure: {
+          earliestCycleMultiplier: 2.45,
+          bias: 0.74
+        },
+        risingAntiStall: {
+          earliestCycleMultiplier: 3.1,
+          bias: 0.68
+        },
+        closureReadiness: {
+          earliestCycleMultiplier: 4.45,
+          bias: 0.44
+        }
+      }
+    },
+    resetCadenceRisk: {
+      weights: {
+        healthBias: 0.32,
+        prematureResetRisk: 0.3,
+        resetWindowInstabilityRisk: 0.18,
+        defenderResetQualityPenalty: 0.2
+      },
+      resetWindowInstability: {
+        excessResetWeight: 0.78,
+        activeBiasWeight: 0.22,
+        activeBiasCycleMultiplier: 0.8
+      },
+      prematureReset: {
+        eventWeight: 0.48,
+        legitimateWindowReliefWeight: 0.08
+      }
+    },
+    antiStallOverhang: {
+      weights: {
+        healthBias: 0.34,
+        stickyAntiStallRisk: 0.16,
+        stickyClosureWindowRisk: 0.18,
+        prolongedReadinessRisk: 0.14,
+        currentOverhangRisk: 0.08,
+        stickinessPenalty: 0.1
+      },
+      stickyEventMaxCount: 2,
+      currentOverhangThresholds: {
+        risingAntiStall: {
+          dwellOffsetCycleMultiplier: 1.1,
+          dwellWindowCycleMultiplier: 0.8
+        },
+        closureReadiness: {
+          dwellOffsetCycleMultiplier: 1.35,
+          dwellWindowCycleMultiplier: 1
+        },
+        acceleratedClosureWindow: {
+          dwellOffsetCycleMultiplier: 0.9,
+          dwellWindowCycleMultiplier: 0.7
+        }
+      },
+      prolongedReadiness: {
+        cumulativeDwellCycleMultiplier: 2.3,
+        eventWeight: 0.42,
+        activeBiasThresholdCycleMultiplier: 1.3,
+        activeBiasWindowCycleMultiplier: 1,
+        activeBiasWeight: 0.28,
+        cumulativeWeight: 0.34,
+        eventContributionWeight: 0.46
+      }
+    },
+    doctrineFit: {
+      weights: {
+        pacingHealthQuality: 0.26,
+        escalationTimingQuality: 0.21,
+        progressionOrderQuality: 0.18,
+        defenderResetQuality: 0.12,
+        earlySiegeBiasRelief: 0.08,
+        lateClosureDragRelief: 0.07,
+        resetCadenceRiskRelief: 0.04,
+        antiStallOverhangRelief: 0.04
+      }
+    },
+    retuningUrgency: {
+      dominantRiskWeight: 0.72,
+      doctrineFitGapWeight: 0.28
+    },
+    verdictThresholds: {
+      doctrineFitMinimum: 0.64,
+      dominantRiskMaximum: 0.46
+    },
+    confidenceThresholds: {
+      high: {
+        elapsedCycleMultiplier: 3.25,
+        seenStates: 3,
+        eventEvidence: 2
+      },
+      medium: {
+        elapsedCycleMultiplier: 1.75,
+        seenStates: 2,
+        eventEvidence: 1
+      }
+    },
+    healthBiases: {
+      earlySiege: {
+        earlyEscalation: 0.88,
+        prematureReset: 0.18
+      },
+      lateClosure: {
+        lateEscalation: 0.88,
+        prolongedReadiness: 0.46,
+        stickyAntiStall: 0.24
+      },
+      resetCadence: {
+        prematureReset: 0.92
+      },
+      antiStallOverhang: {
+        stickyClosureWindow: 0.94,
+        stickyAntiStall: 0.78,
+        prolongedReadiness: 0.58
+      }
+    },
+    riskScalarWeight: 0.04
+  },
   prototypeLaneStateLoop: {
     carryoverPressureStateClamp: {
       min: 0.95,

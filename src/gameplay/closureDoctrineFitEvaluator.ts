@@ -3,6 +3,7 @@ import {
   type ClosurePacingState
 } from './closurePacingInterpreter';
 import { type ClosurePacingWatchSnapshot } from './closurePacingWatch';
+import { gameplayTuningConfig } from './gameplayTuningConfig';
 
 type PacingStateTimingMap = Record<ClosurePacingState, number | null>;
 
@@ -87,42 +88,27 @@ interface RuntimeState {
   hint: ClosureDoctrineFitHint;
 }
 
-const scalarMin = 0.95;
-const scalarMax = 1.08;
+const closureDoctrineFitTuning =
+  gameplayTuningConfig.closureDoctrineFitEvaluator;
+const observedConfidenceStates: ClosurePacingState[] = [
+  'rising-anti-stall',
+  'closure-readiness',
+  'accelerated-closure-window',
+  'defender-reset-window'
+];
 
 export const createClosureDoctrineFitEvaluator =
   (): ClosureDoctrineFitEvaluator => {
-    const state: RuntimeState = {
-      verdict: 'doctrine-fit',
-      verdictAgeSeconds: 0,
-      levels: {
-        doctrineFit: 0.72,
-        earlySiegeBias: 0.16,
-        lateClosureDrag: 0.18,
-        resetCadenceRisk: 0.16,
-        antiStallOverhang: 0.17,
-        retuningUrgency: 0.18
-      },
-      calibration: {
-        verdict: 'doctrine-fit',
-        doctrineFitScalar: 1.03,
-        earlySiegeBiasScalar: 0.995,
-        lateClosureDragScalar: 0.995,
-        resetCadenceRiskScalar: 0.995,
-        antiStallOverhangScalar: 0.995,
-        retuningUrgencyScalar: 0.992
-      },
-      hint: {
-        dominantDriftCause: 'none',
-        likelyRetuningDirection: 'hold-course',
-        confidence: 'low'
-      }
-    };
+    const state: RuntimeState = createInitialRuntimeState();
 
     return {
       update(dt, input) {
         const target = deriveTargetLevels(input);
-        const blend = clamp(dt * 0.9, 0.08, 1);
+        const blend = clamp(
+          dt * closureDoctrineFitTuning.blendRatePerSecond,
+          closureDoctrineFitTuning.blendClamp.min,
+          closureDoctrineFitTuning.blendClamp.max
+        );
 
         state.levels.doctrineFit = approach(
           state.levels.doctrineFit,
@@ -190,87 +176,158 @@ export const createClosureDoctrineFitEvaluator =
 const deriveTargetLevels = (
   input: ClosureDoctrineFitEvaluatorInput
 ): RuntimeLevels => {
-  const cycle = Math.max(6, input.cycleSeconds);
+  const cycle = Math.max(
+    closureDoctrineFitTuning.minimumCycleSeconds,
+    input.cycleSeconds
+  );
   const watch = input.watch;
   const pacing = input.pacing;
   const firstEntry = watch.firstEntrySecondsByState;
-  const healthQuality = normalizeQualityScalar(watch.calibration.pacingHealthScalar);
-  const timingQuality = normalizeQualityScalar(watch.calibration.escalationTimingScalar);
-  const stickinessQuality = normalizeQualityScalar(watch.calibration.closureStickinessScalar);
-  const resetQuality = normalizeQualityScalar(watch.calibration.defenderResetQualityScalar);
-  const orderQuality = normalizeQualityScalar(watch.calibration.progressionOrderScalar);
+  const healthQuality = normalizeQualityScalar(
+    watch.calibration.pacingHealthScalar
+  );
+  const timingQuality = normalizeQualityScalar(
+    watch.calibration.escalationTimingScalar
+  );
+  const stickinessQuality = normalizeQualityScalar(
+    watch.calibration.closureStickinessScalar
+  );
+  const resetQuality = normalizeQualityScalar(
+    watch.calibration.defenderResetQualityScalar
+  );
+  const orderQuality = normalizeQualityScalar(
+    watch.calibration.progressionOrderScalar
+  );
+  const earlySiegeBiasTuning = closureDoctrineFitTuning.earlySiegeBias;
+  const lateClosureDragTuning = closureDoctrineFitTuning.lateClosureDrag;
+  const resetCadenceRiskTuning = closureDoctrineFitTuning.resetCadenceRisk;
+  const antiStallOverhangTuning = closureDoctrineFitTuning.antiStallOverhang;
+  const doctrineFitTuning = closureDoctrineFitTuning.doctrineFit;
+  const retuningUrgencyTuning = closureDoctrineFitTuning.retuningUrgency;
 
   const earlySiegeBias = clamp(
-    earlyHealthBias(watch.healthState) * 0.34 +
-      earlyTimingRisk(firstEntry['rising-anti-stall'], cycle * 0.22) * 0.17 +
-      earlyTimingRisk(firstEntry['closure-readiness'], cycle * 0.48) * 0.23 +
-      earlyTimingRisk(firstEntry['accelerated-closure-window'], cycle * 0.8) * 0.12 +
-      earlyStateBias(input) * 0.1 +
-      (1 - orderQuality) * 0.12 +
-      (1 - timingQuality) * 0.08,
+    earlyHealthBias(watch.healthState) *
+      earlySiegeBiasTuning.weights.healthBias +
+      earlyTimingRisk(
+        firstEntry['rising-anti-stall'],
+        cycle * earlySiegeBiasTuning.timingThresholdCycleFractions.risingAntiStall
+      ) *
+        earlySiegeBiasTuning.weights.risingAntiStallTimingRisk +
+      earlyTimingRisk(
+        firstEntry['closure-readiness'],
+        cycle *
+          earlySiegeBiasTuning.timingThresholdCycleFractions.closureReadiness
+      ) *
+        earlySiegeBiasTuning.weights.closureReadinessTimingRisk +
+      earlyTimingRisk(
+        firstEntry['accelerated-closure-window'],
+        cycle *
+          earlySiegeBiasTuning.timingThresholdCycleFractions
+            .acceleratedClosureWindow
+      ) *
+        earlySiegeBiasTuning.weights.acceleratedClosureWindowTimingRisk +
+      earlyStateBias(input, cycle) *
+        earlySiegeBiasTuning.weights.currentStateBias +
+      (1 - orderQuality) * earlySiegeBiasTuning.weights.progressionOrderPenalty +
+      (1 - timingQuality) *
+        earlySiegeBiasTuning.weights.escalationTimingPenalty,
     0,
     1
   );
 
   const lateClosureDrag = clamp(
-    lateHealthBias(watch.healthState) * 0.29 +
+    lateHealthBias(watch.healthState) *
+      lateClosureDragTuning.weights.healthBias +
       lateTimingRisk(
         firstEntry['rising-anti-stall'],
-        cycle * 2.2,
+        cycle *
+          lateClosureDragTuning.timingThresholdCycleMultipliers.risingAntiStall
+            .max,
         input.elapsedSeconds,
-        cycle * 2.6
+        cycle *
+          lateClosureDragTuning.timingThresholdCycleMultipliers.risingAntiStall
+            .overdue
       ) *
-        0.12 +
+        lateClosureDragTuning.weights.risingAntiStallTimingRisk +
       lateTimingRisk(
         firstEntry['closure-readiness'],
-        cycle * 3.1,
+        cycle *
+          lateClosureDragTuning.timingThresholdCycleMultipliers
+            .closureReadiness.max,
         input.elapsedSeconds,
-        cycle * 3.6
+        cycle *
+          lateClosureDragTuning.timingThresholdCycleMultipliers
+            .closureReadiness.overdue
       ) *
-        0.25 +
+        lateClosureDragTuning.weights.closureReadinessTimingRisk +
       lateTimingRisk(
         firstEntry['accelerated-closure-window'],
-        cycle * 4.2,
+        cycle *
+          lateClosureDragTuning.timingThresholdCycleMultipliers
+            .acceleratedClosureWindow.max,
         input.elapsedSeconds,
-        cycle * 4.8
+        cycle *
+          lateClosureDragTuning.timingThresholdCycleMultipliers
+            .acceleratedClosureWindow.overdue
       ) *
-        0.11 +
-      lateStateBias(input) * 0.08 +
-      prolongedReadinessRisk(watch, cycle, pacing) * 0.1 +
-      (1 - timingQuality) * 0.05,
+        lateClosureDragTuning.weights.acceleratedClosureWindowTimingRisk +
+      lateStateBias(input, cycle) *
+        lateClosureDragTuning.weights.currentStateBias +
+      prolongedReadinessRisk(watch, cycle, pacing) *
+        lateClosureDragTuning.weights.prolongedReadinessRisk +
+      (1 - timingQuality) *
+        lateClosureDragTuning.weights.escalationTimingPenalty,
     0,
     1
   );
 
   const resetCadenceRisk = clamp(
-    resetHealthBias(watch.healthState) * 0.32 +
-      prematureResetRisk(watch) * 0.3 +
-      resetWindowInstabilityRisk(watch, pacing, cycle) * 0.18 +
-      (1 - resetQuality) * 0.2,
+    resetHealthBias(watch.healthState) *
+      resetCadenceRiskTuning.weights.healthBias +
+      prematureResetRisk(watch) *
+        resetCadenceRiskTuning.weights.prematureResetRisk +
+      resetWindowInstabilityRisk(watch, pacing, cycle) *
+        resetCadenceRiskTuning.weights.resetWindowInstabilityRisk +
+      (1 - resetQuality) *
+        resetCadenceRiskTuning.weights.defenderResetQualityPenalty,
     0,
     1
   );
 
   const antiStallOverhang = clamp(
-    overhangHealthBias(watch.healthState) * 0.34 +
-      stickyEventRisk(watch.stickyAntiStallEvents, 2) * 0.16 +
-      stickyEventRisk(watch.stickyClosureWindowEvents, 2) * 0.18 +
-      prolongedReadinessRisk(watch, cycle, pacing) * 0.14 +
-      currentOverhangRisk(pacing, watch, cycle) * 0.08 +
-      (1 - stickinessQuality) * 0.1,
+    overhangHealthBias(watch.healthState) *
+      antiStallOverhangTuning.weights.healthBias +
+      stickyEventRisk(
+        watch.stickyAntiStallEvents,
+        antiStallOverhangTuning.stickyEventMaxCount
+      ) *
+        antiStallOverhangTuning.weights.stickyAntiStallRisk +
+      stickyEventRisk(
+        watch.stickyClosureWindowEvents,
+        antiStallOverhangTuning.stickyEventMaxCount
+      ) *
+        antiStallOverhangTuning.weights.stickyClosureWindowRisk +
+      prolongedReadinessRisk(watch, cycle, pacing) *
+        antiStallOverhangTuning.weights.prolongedReadinessRisk +
+      currentOverhangRisk(pacing, watch, cycle) *
+        antiStallOverhangTuning.weights.currentOverhangRisk +
+      (1 - stickinessQuality) *
+        antiStallOverhangTuning.weights.stickinessPenalty,
     0,
     1
   );
 
   const doctrineFit = clamp(
-    healthQuality * 0.26 +
-      timingQuality * 0.21 +
-      orderQuality * 0.18 +
-      resetQuality * 0.12 +
-      (1 - earlySiegeBias) * 0.08 +
-      (1 - lateClosureDrag) * 0.07 +
-      (1 - resetCadenceRisk) * 0.04 +
-      (1 - antiStallOverhang) * 0.04,
+    healthQuality * doctrineFitTuning.weights.pacingHealthQuality +
+      timingQuality * doctrineFitTuning.weights.escalationTimingQuality +
+      orderQuality * doctrineFitTuning.weights.progressionOrderQuality +
+      resetQuality * doctrineFitTuning.weights.defenderResetQuality +
+      (1 - earlySiegeBias) * doctrineFitTuning.weights.earlySiegeBiasRelief +
+      (1 - lateClosureDrag) * doctrineFitTuning.weights.lateClosureDragRelief +
+      (1 - resetCadenceRisk) *
+        doctrineFitTuning.weights.resetCadenceRiskRelief +
+      (1 - antiStallOverhang) *
+        doctrineFitTuning.weights.antiStallOverhangRelief,
     0,
     1
   );
@@ -282,8 +339,8 @@ const deriveTargetLevels = (
       resetCadenceRisk,
       antiStallOverhang
     ) *
-      0.72 +
-      (1 - doctrineFit) * 0.28,
+      retuningUrgencyTuning.dominantRiskWeight +
+      (1 - doctrineFit) * retuningUrgencyTuning.doctrineFitGapWeight,
     0,
     1
   );
@@ -307,8 +364,12 @@ const deriveVerdict = (
     levels.resetCadenceRisk,
     levels.antiStallOverhang
   );
+  const thresholds = closureDoctrineFitTuning.verdictThresholds;
 
-  if (levels.doctrineFit >= 0.64 && dominantRisk < 0.46) {
+  if (
+    levels.doctrineFit >= thresholds.doctrineFitMinimum &&
+    dominantRisk < thresholds.dominantRiskMaximum
+  ) {
     return 'doctrine-fit';
   }
 
@@ -351,8 +412,7 @@ const deriveHint = (
   verdict: ClosureDoctrineFitVerdict,
   input: ClosureDoctrineFitEvaluatorInput
 ): ClosureDoctrineFitHint => ({
-  dominantDriftCause:
-    verdict === 'doctrine-fit' ? 'none' : verdict,
+  dominantDriftCause: verdict === 'doctrine-fit' ? 'none' : verdict,
   likelyRetuningDirection:
     verdict === 'early-siege-bias'
       ? 'tone-down-early-escalation'
@@ -369,7 +429,10 @@ const deriveHint = (
 const deriveConfidence = (
   input: ClosureDoctrineFitEvaluatorInput
 ): ClosureDoctrineConfidence => {
-  const cycle = Math.max(6, input.cycleSeconds);
+  const cycle = Math.max(
+    closureDoctrineFitTuning.minimumCycleSeconds,
+    input.cycleSeconds
+  );
   const watch = input.watch;
   const seenStates = countObservedStates(watch.firstEntrySecondsByState);
   const eventEvidence =
@@ -378,12 +441,21 @@ const deriveConfidence = (
     watch.prolongedReadinessEvents +
     watch.prematureResetEvents +
     watch.legitimateResetWindows;
+  const thresholds = closureDoctrineFitTuning.confidenceThresholds;
 
-  if (input.elapsedSeconds >= cycle * 3.25 || seenStates >= 3 || eventEvidence >= 2) {
+  if (
+    input.elapsedSeconds >= cycle * thresholds.high.elapsedCycleMultiplier ||
+    seenStates >= thresholds.high.seenStates ||
+    eventEvidence >= thresholds.high.eventEvidence
+  ) {
     return 'high';
   }
 
-  if (input.elapsedSeconds >= cycle * 1.75 || seenStates >= 2 || eventEvidence >= 1) {
+  if (
+    input.elapsedSeconds >= cycle * thresholds.medium.elapsedCycleMultiplier ||
+    seenStates >= thresholds.medium.seenStates ||
+    eventEvidence >= thresholds.medium.eventEvidence
+  ) {
     return 'medium';
   }
 
@@ -393,38 +465,55 @@ const deriveConfidence = (
 const countObservedStates = (
   firstEntrySecondsByState: PacingStateTimingMap
 ): number =>
-  (firstEntrySecondsByState['rising-anti-stall'] !== null ? 1 : 0) +
-  (firstEntrySecondsByState['closure-readiness'] !== null ? 1 : 0) +
-  (firstEntrySecondsByState['accelerated-closure-window'] !== null ? 1 : 0) +
-  (firstEntrySecondsByState['defender-reset-window'] !== null ? 1 : 0);
+  observedConfidenceStates.reduce(
+    (observedCount, state) =>
+      observedCount + (firstEntrySecondsByState[state] !== null ? 1 : 0),
+    0
+  );
 
 const earlyStateBias = (
-  input: ClosureDoctrineFitEvaluatorInput
+  input: ClosureDoctrineFitEvaluatorInput,
+  cycle: number
 ): number => {
-  const cycle = Math.max(6, input.cycleSeconds);
+  const stateBiases = closureDoctrineFitTuning.earlySiegeBias.stateBiases;
+
   return (
-    input.pacing.state === 'closure-readiness' && input.elapsedSeconds < cycle * 0.55
-      ? 0.72
+    input.pacing.state === 'closure-readiness' &&
+    input.elapsedSeconds <
+      cycle * stateBiases.closureReadiness.latestCycleFraction
+      ? stateBiases.closureReadiness.bias
       : input.pacing.state === 'accelerated-closure-window' &&
-          input.elapsedSeconds < cycle * 0.9
-        ? 0.88
-        : input.pacing.state === 'rising-anti-stall' && input.elapsedSeconds < cycle * 0.25
-          ? 0.52
+          input.elapsedSeconds <
+            cycle *
+              stateBiases.acceleratedClosureWindow.latestCycleFraction
+        ? stateBiases.acceleratedClosureWindow.bias
+        : input.pacing.state === 'rising-anti-stall' &&
+            input.elapsedSeconds <
+              cycle * stateBiases.risingAntiStall.latestCycleFraction
+          ? stateBiases.risingAntiStall.bias
           : 0
   );
 };
 
 const lateStateBias = (
-  input: ClosureDoctrineFitEvaluatorInput
+  input: ClosureDoctrineFitEvaluatorInput,
+  cycle: number
 ): number => {
-  const cycle = Math.max(6, input.cycleSeconds);
+  const stateBiases = closureDoctrineFitTuning.lateClosureDrag.stateBiases;
+
   return (
-    input.pacing.state === 'normal-pressure' && input.elapsedSeconds > cycle * 2.45
-      ? 0.74
-      : input.pacing.state === 'rising-anti-stall' && input.elapsedSeconds > cycle * 3.1
-        ? 0.68
-        : input.pacing.state === 'closure-readiness' && input.elapsedSeconds > cycle * 4.45
-          ? 0.44
+    input.pacing.state === 'normal-pressure' &&
+    input.elapsedSeconds >
+      cycle * stateBiases.normalPressure.earliestCycleMultiplier
+      ? stateBiases.normalPressure.bias
+      : input.pacing.state === 'rising-anti-stall' &&
+          input.elapsedSeconds >
+            cycle * stateBiases.risingAntiStall.earliestCycleMultiplier
+        ? stateBiases.risingAntiStall.bias
+        : input.pacing.state === 'closure-readiness' &&
+            input.elapsedSeconds >
+              cycle * stateBiases.closureReadiness.earliestCycleMultiplier
+          ? stateBiases.closureReadiness.bias
           : 0
   );
 };
@@ -433,26 +522,53 @@ const currentOverhangRisk = (
   pacing: ClosurePacingSnapshot,
   watch: ClosurePacingWatchSnapshot,
   cycle: number
-): number =>
-  pacing.state === 'rising-anti-stall'
-    ? clamp(
-        (watch.currentStateDwellSeconds - cycle * 1.1) / Math.max(0.001, cycle * 0.8),
-        0,
-        1
-      )
-    : pacing.state === 'closure-readiness'
-      ? clamp(
-          (watch.currentStateDwellSeconds - cycle * 1.35) / Math.max(0.001, cycle),
-          0,
-          1
-        )
-      : pacing.state === 'accelerated-closure-window'
-        ? clamp(
-            (watch.currentStateDwellSeconds - cycle * 0.9) / Math.max(0.001, cycle * 0.7),
-            0,
-            1
-          )
-        : 0;
+): number => {
+  const thresholds =
+    closureDoctrineFitTuning.antiStallOverhang.currentOverhangThresholds;
+
+  if (pacing.state === 'rising-anti-stall') {
+    return clamp(
+      (watch.currentStateDwellSeconds -
+        cycle * thresholds.risingAntiStall.dwellOffsetCycleMultiplier) /
+        Math.max(
+          0.001,
+          cycle * thresholds.risingAntiStall.dwellWindowCycleMultiplier
+        ),
+      0,
+      1
+    );
+  }
+
+  if (pacing.state === 'closure-readiness') {
+    return clamp(
+      (watch.currentStateDwellSeconds -
+        cycle * thresholds.closureReadiness.dwellOffsetCycleMultiplier) /
+        Math.max(
+          0.001,
+          cycle * thresholds.closureReadiness.dwellWindowCycleMultiplier
+        ),
+      0,
+      1
+    );
+  }
+
+  if (pacing.state === 'accelerated-closure-window') {
+    return clamp(
+      (watch.currentStateDwellSeconds -
+        cycle *
+          thresholds.acceleratedClosureWindow.dwellOffsetCycleMultiplier) /
+        Math.max(
+          0.001,
+          cycle *
+            thresholds.acceleratedClosureWindow.dwellWindowCycleMultiplier
+        ),
+      0,
+      1
+    );
+  }
+
+  return 0;
+};
 
 const resetWindowInstabilityRisk = (
   watch: ClosurePacingWatchSnapshot,
@@ -462,24 +578,42 @@ const resetWindowInstabilityRisk = (
   const resetEntries = watch.entryCountByState['defender-reset-window'];
   const readinessEntries = watch.entryCountByState['closure-readiness'];
   const excessReset = clamp(
-    (resetEntries - Math.max(1, readinessEntries)) / Math.max(1, readinessEntries + 1),
+    (resetEntries - Math.max(1, readinessEntries)) /
+      Math.max(1, readinessEntries + 1),
     0,
     1
   );
+  const instabilityTuning =
+    closureDoctrineFitTuning.resetCadenceRisk.resetWindowInstability;
   const activeBias =
     pacing.state === 'defender-reset-window'
-      ? clamp(pacing.stateAgeSeconds / Math.max(0.001, cycle * 0.8), 0, 1) * 0.22
+      ? clamp(
+          pacing.stateAgeSeconds /
+            Math.max(
+              0.001,
+              cycle * instabilityTuning.activeBiasCycleMultiplier
+            ),
+          0,
+          1
+        ) * instabilityTuning.activeBiasWeight
       : 0;
 
-  return clamp(excessReset * 0.78 + activeBias, 0, 1);
+  return clamp(
+    excessReset * instabilityTuning.excessResetWeight + activeBias,
+    0,
+    1
+  );
 };
 
 const prematureResetRisk = (
   watch: ClosurePacingWatchSnapshot
 ): number =>
   clamp(
-    watch.prematureResetEvents * 0.48 -
-      watch.legitimateResetWindows * 0.08,
+    watch.prematureResetEvents *
+      closureDoctrineFitTuning.resetCadenceRisk.prematureReset.eventWeight -
+      watch.legitimateResetWindows *
+        closureDoctrineFitTuning.resetCadenceRisk.prematureReset
+          .legitimateWindowReliefWeight,
     0,
     1
   );
@@ -489,24 +623,63 @@ const prolongedReadinessRisk = (
   cycle: number,
   pacing: ClosurePacingSnapshot
 ): number => {
+  const prolongedReadinessTuning =
+    closureDoctrineFitTuning.antiStallOverhang.prolongedReadiness;
   const cumulativeRisk = clamp(
     watch.cumulativeDwellSecondsByState['closure-readiness'] /
-      Math.max(0.001, cycle * 2.3),
+      Math.max(
+        0.001,
+        cycle * prolongedReadinessTuning.cumulativeDwellCycleMultiplier
+      ),
     0,
     1
   );
-  const eventRisk = clamp(watch.prolongedReadinessEvents * 0.42, 0, 1);
+  const eventRisk = clamp(
+    watch.prolongedReadinessEvents * prolongedReadinessTuning.eventWeight,
+    0,
+    1
+  );
   const activeBias =
     pacing.state === 'closure-readiness'
       ? clamp(
-          (watch.currentStateDwellSeconds - cycle * 1.3) / Math.max(0.001, cycle),
+          (watch.currentStateDwellSeconds -
+            cycle *
+              prolongedReadinessTuning.activeBiasThresholdCycleMultiplier) /
+            Math.max(
+              0.001,
+              cycle *
+                prolongedReadinessTuning.activeBiasWindowCycleMultiplier
+            ),
           0,
           1
-        ) * 0.28
+        ) * prolongedReadinessTuning.activeBiasWeight
       : 0;
 
-  return clamp(cumulativeRisk * 0.34 + eventRisk * 0.46 + activeBias, 0, 1);
+  return clamp(
+    cumulativeRisk * prolongedReadinessTuning.cumulativeWeight +
+      eventRisk * prolongedReadinessTuning.eventContributionWeight +
+      activeBias,
+    0,
+    1
+  );
 };
+
+const createInitialRuntimeState = (): RuntimeState => ({
+  verdict: 'doctrine-fit',
+  verdictAgeSeconds: 0,
+  levels: {
+    ...closureDoctrineFitTuning.initialLevels
+  },
+  calibration: {
+    verdict: 'doctrine-fit',
+    ...closureDoctrineFitTuning.initialCalibrationScalars
+  },
+  hint: {
+    dominantDriftCause: 'none',
+    likelyRetuningDirection: 'hold-course',
+    confidence: 'low'
+  }
+});
 
 const stickyEventRisk = (count: number, maxCount: number): number =>
   clamp(count / Math.max(1, maxCount), 0, 1);
@@ -515,38 +688,39 @@ const earlyHealthBias = (
   healthState: ClosurePacingWatchSnapshot['healthState']
 ): number =>
   healthState === 'early-escalation'
-    ? 0.88
+    ? closureDoctrineFitTuning.healthBiases.earlySiege.earlyEscalation
     : healthState === 'premature-reset'
-      ? 0.18
+      ? closureDoctrineFitTuning.healthBiases.earlySiege.prematureReset
       : 0;
 
 const lateHealthBias = (
   healthState: ClosurePacingWatchSnapshot['healthState']
 ): number =>
   healthState === 'late-escalation'
-    ? 0.88
+    ? closureDoctrineFitTuning.healthBiases.lateClosure.lateEscalation
     : healthState === 'prolonged-readiness'
-      ? 0.46
+      ? closureDoctrineFitTuning.healthBiases.lateClosure.prolongedReadiness
       : healthState === 'sticky-anti-stall'
-        ? 0.24
+        ? closureDoctrineFitTuning.healthBiases.lateClosure.stickyAntiStall
         : 0;
 
 const resetHealthBias = (
   healthState: ClosurePacingWatchSnapshot['healthState']
 ): number =>
   healthState === 'premature-reset'
-    ? 0.92
+    ? closureDoctrineFitTuning.healthBiases.resetCadence.prematureReset
     : 0;
 
 const overhangHealthBias = (
   healthState: ClosurePacingWatchSnapshot['healthState']
 ): number =>
   healthState === 'sticky-closure-window'
-    ? 0.94
+    ? closureDoctrineFitTuning.healthBiases.antiStallOverhang.stickyClosureWindow
     : healthState === 'sticky-anti-stall'
-      ? 0.78
+      ? closureDoctrineFitTuning.healthBiases.antiStallOverhang.stickyAntiStall
       : healthState === 'prolonged-readiness'
-        ? 0.58
+        ? closureDoctrineFitTuning.healthBiases.antiStallOverhang
+            .prolongedReadiness
         : 0;
 
 const earlyTimingRisk = (
@@ -557,7 +731,11 @@ const earlyTimingRisk = (
     return 0;
   }
 
-  return clamp((minSeconds - firstEntrySeconds) / Math.max(1, minSeconds), 0, 1);
+  return clamp(
+    (minSeconds - firstEntrySeconds) / Math.max(1, minSeconds),
+    0,
+    1
+  );
 };
 
 const lateTimingRisk = (
@@ -572,7 +750,8 @@ const lateTimingRisk = (
     }
 
     return clamp(
-      (firstEntrySeconds - maxSeconds) / Math.max(1, overdueSeconds - maxSeconds),
+      (firstEntrySeconds - maxSeconds) /
+        Math.max(1, overdueSeconds - maxSeconds),
       0,
       1
     );
@@ -590,13 +769,33 @@ const lateTimingRisk = (
 };
 
 const normalizeQualityScalar = (scalar: number): number =>
-  clamp((scalar - scalarMin) / Math.max(0.001, scalarMax - scalarMin), 0, 1);
+  clamp(
+    (scalar - closureDoctrineFitTuning.scalarClamp.min) /
+      Math.max(
+        0.001,
+        closureDoctrineFitTuning.scalarClamp.max -
+          closureDoctrineFitTuning.scalarClamp.min
+      ),
+    0,
+    1
+  );
 
 const qualityToScalar = (quality: number): number =>
-  clamp(scalarMin + clamp(quality, 0, 1) * (scalarMax - scalarMin), scalarMin, scalarMax);
+  clamp(
+    closureDoctrineFitTuning.scalarClamp.min +
+      clamp(quality, 0, 1) *
+        (closureDoctrineFitTuning.scalarClamp.max -
+          closureDoctrineFitTuning.scalarClamp.min),
+    closureDoctrineFitTuning.scalarClamp.min,
+    closureDoctrineFitTuning.scalarClamp.max
+  );
 
 const riskToScalar = (risk: number): number =>
-  clamp(1 + clamp(risk, 0, 1) * 0.04, scalarMin, scalarMax);
+  clamp(
+    1 + clamp(risk, 0, 1) * closureDoctrineFitTuning.riskScalarWeight,
+    closureDoctrineFitTuning.scalarClamp.min,
+    closureDoctrineFitTuning.scalarClamp.max
+  );
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.max(min, Math.min(max, value));

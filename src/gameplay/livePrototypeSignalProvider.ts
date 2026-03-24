@@ -92,6 +92,7 @@ import {
   cloneSharedPushReassertionSnapshot,
   type SharedPushReassertionSnapshot
 } from './sharedPushReassertionSlice';
+import { gameplayTuningConfig } from './gameplayTuningConfig';
 
 type TierScalars = Record<StructurePressureTier, number>;
 type SegmentScalars = Record<LanePressureSegment, number>;
@@ -528,8 +529,10 @@ interface MomentumState {
   scenarioSamples: number;
 }
 
-const carryoverStateMin = 0.95;
-const carryoverStateMax = 1.08;
+const carryoverStateMin =
+  gameplayTuningConfig.prototypeLaneStateLoop.carryoverPressureStateClamp.min;
+const carryoverStateMax =
+  gameplayTuningConfig.prototypeLaneStateLoop.carryoverPressureStateClamp.max;
 
 export const createLivePrototypeSignalProvider =
   (): LivePrototypeSignalProvider => {

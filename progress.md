@@ -192,3 +192,39 @@ Original prompt: TECH DEBT & CONFIG EXTRACTION PASS. Freeze features and stabili
 - TODO if continuing:
 - Keep future stabilization work on the same direct input path; do not turn the new tuning module into a generic config framework.
 - If the lane later bends, extend the lane route point source, not the bridge semantics; the projection seam is already in place.
+
+Original prompt: HEADLESS MACRO-CORE CONSOLIDATION PASS. Under macro-core feature freeze, finish low-risk cleanup after the tuning-config / route-progress refactor by moving remaining active blind constants into the centralized tuning config, reducing obvious duplication conservatively, preserving behavior, and keeping the pass small and stabilization-focused.
+
+- Added `closureDoctrineFitEvaluator` tuning into `src/gameplay/gameplayTuningConfig.ts`.
+- Refactored `src/gameplay/closureDoctrineFitEvaluator.ts` to consume explicit tuning groups instead of local blind scalars for:
+- initial runtime levels / calibration scalars
+- blend rate and clamp
+- early siege bias weights and timing thresholds
+- late closure drag weights and timing thresholds
+- reset cadence / anti-stall risk weights and thresholds
+- doctrine-fit / urgency / verdict / confidence thresholds
+- health-bias scalar values
+- Did one additional low-risk cleanup in `src/gameplay/livePrototypeSignalProvider.ts` so carryover clamp bounds now reuse the existing centralized prototype-lane tuning instead of a duplicated local `0.95 / 1.08` pair.
+- Small duplication cleanup in `closureDoctrineFitEvaluator.ts`:
+- extracted initial runtime-state construction into one helper
+- replaced manual observed-state counting with a small shared state list
+
+- Verification status:
+- `npm.cmd run build` passes.
+- Playwright client run against `http://127.0.0.1:4179` with `.codex-temp-actions-mirror.json` preserved the intended lifecycle:
+- `sharedSiegeWindow.active = true`
+- `sharedDefenderResponse.active = true`
+- `sharedPushReassertion` still resolves in the same contest window
+- `sharedStructureConversion` remains bounded
+- `sharedClosureAdvancement` remains bounded
+- embedded `determinismProof.passed = true`
+- Fresh `render_game_to_text` sample after this cleanup:
+- `sharedStructureConversion.progress = 0.19 / 0.26`
+- `sharedClosureAdvancement.value = 0.08`
+- `sharedPushReassertion.lastResolvedRecoveryAction = push-reassertion-pulse-fired`
+- Screenshot continuity note:
+- headless and headed Playwright captures are still fully black, matching the pre-existing WebGL/capture issue rather than this cleanup pass
+
+- TODO if continuing:
+- If another consolidation pass happens, prioritize other closure-path blind scalars only where they are clearly active and worth centralizing; do not start a generic utilities/config crusade.
+- Keep browser-proof reliance on `render_game_to_text` until the separate black-screenshot capture issue is resolved.
