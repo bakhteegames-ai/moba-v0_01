@@ -86,6 +86,18 @@ import {
   createDefaultHeadlessBridgeLaneConsequenceSnapshot,
   type HeadlessBridgeLaneConsequenceSnapshot
 } from './headlessBridgeConsequenceAdapter';
+import {
+  cloneSharedSiegeWindowSnapshot,
+  createDefaultSharedSiegeWindowSnapshot,
+  deriveSharedSiegeWindowSnapshot,
+  type SharedSiegeWindowSnapshot
+} from './sharedSiegeWindowConversion';
+import {
+  advanceSharedStructureConversionSnapshot,
+  cloneSharedStructureConversionSnapshot,
+  createDefaultSharedStructureConversionSnapshot,
+  type SharedStructureConversionSnapshot
+} from './sharedStructureConversionStep';
 
 type SegmentValues = Record<LanePressureSegment, number>;
 type TierValues = Record<StructurePressureTier, number>;
@@ -139,6 +151,8 @@ export interface PrototypeLaneStateSnapshot {
   calibrationOperatorWorkflow: CalibrationOperatorWorkflowGuideSnapshot;
   calibrationOperatorLoopClosure: CalibrationOperatorLoopClosureSnapshot;
   sharedLaneConsequence: HeadlessBridgeLaneConsequenceSnapshot;
+  sharedSiegeWindow: SharedSiegeWindowSnapshot;
+  sharedStructureConversion: SharedStructureConversionSnapshot;
 }
 
 export interface PrototypeLaneOutcomeSample {
@@ -214,6 +228,9 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
   const calibrationOperatorLoopClosure = createCalibrationOperatorLoopClosureModel();
   let sharedLaneConsequence =
     createDefaultHeadlessBridgeLaneConsequenceSnapshot();
+  let sharedSiegeWindow = createDefaultSharedSiegeWindowSnapshot();
+  let sharedStructureConversion =
+    createDefaultSharedStructureConversionSnapshot();
   const memory: LaneStateMemory = {
     elapsedSeconds: 0,
     carryoverPressureState: 1,
@@ -294,16 +311,30 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
       const occupancy = occupancyProducer.getSnapshot();
       const sharedLaneModifier =
         buildHeadlessBridgeLaneModifier(sharedLaneConsequence);
-      structureEventTracker.update(
-        dt,
-        memory.elapsedSeconds,
-        buildStructureEventInput(occupancy, sharedLaneModifier)
+      const lanePressureEstimate = buildLanePressureEstimate(
+        occupancy,
+        sharedLaneModifier
       );
-      const eventSnapshot = structureEventTracker.getSnapshot(memory.elapsedSeconds);
       const structurePressureEstimate = buildStructurePressureEstimate(
         occupancy,
         sharedLaneModifier
       );
+      sharedSiegeWindow = deriveSharedSiegeWindowSnapshot({
+        sharedLaneConsequence,
+        lanePressureBySegment: lanePressureEstimate,
+        structurePressureByTier: structurePressureEstimate,
+        segmentOccupancyPresence: occupancy.segmentOccupancyPresence
+      });
+      structureEventTracker.update(
+        dt,
+        memory.elapsedSeconds,
+        buildStructureEventInput(
+          occupancy,
+          sharedLaneModifier,
+          sharedSiegeWindow
+        )
+      );
+      const eventSnapshot = structureEventTracker.getSnapshot(memory.elapsedSeconds);
       structureResolutionMemory.update(
         dt,
         memory.elapsedSeconds,
@@ -311,10 +342,14 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
         eventSnapshot
       );
       const resolutionSnapshot = structureResolutionMemory.getSnapshot();
-      const lanePressureEstimate = buildLanePressureEstimate(
-        occupancy,
-        sharedLaneModifier
-      );
+      sharedStructureConversion = advanceSharedStructureConversionSnapshot({
+        dt,
+        previous: sharedStructureConversion,
+        sharedSiegeWindow,
+        structurePressureByTier: structurePressureEstimate,
+        eventByTier: eventSnapshot.byTier,
+        resolutionByTier: resolutionSnapshot.byTier
+      });
       laneClosurePosture.update(dt, {
         resolutionByTier: {
           outer: resolutionSnapshot.byTier.outer,
@@ -447,7 +482,9 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
         calibrationOperatorControlsSnapshot,
         calibrationOperatorWorkflowSnapshot,
         calibrationOperatorLoopClosureSnapshot,
-        sharedLaneConsequence
+        sharedLaneConsequence,
+        sharedSiegeWindow,
+        sharedStructureConversion
       );
     },
     recordOutcome(sample) {
@@ -642,7 +679,9 @@ const computeSnapshot = (
   calibrationOperatorControlsSnapshot: CalibrationOperatorControlsSnapshot,
   calibrationOperatorWorkflowSnapshot: CalibrationOperatorWorkflowGuideSnapshot,
   calibrationOperatorLoopClosureSnapshot: CalibrationOperatorLoopClosureSnapshot,
-  sharedLaneConsequenceSnapshot: HeadlessBridgeLaneConsequenceSnapshot
+  sharedLaneConsequenceSnapshot: HeadlessBridgeLaneConsequenceSnapshot,
+  sharedSiegeWindowSnapshot: SharedSiegeWindowSnapshot,
+  sharedStructureConversionSnapshot: SharedStructureConversionSnapshot
 ): PrototypeLaneStateSnapshot => {
   const sharedLaneModifier =
     buildHeadlessBridgeLaneModifier(sharedLaneConsequenceSnapshot);
@@ -925,6 +964,12 @@ const computeSnapshot = (
     ),
     sharedLaneConsequence: cloneHeadlessBridgeLaneConsequenceSnapshot(
       sharedLaneConsequenceSnapshot
+    ),
+    sharedSiegeWindow: cloneSharedSiegeWindowSnapshot(
+      sharedSiegeWindowSnapshot
+    ),
+    sharedStructureConversion: cloneSharedStructureConversionSnapshot(
+      sharedStructureConversionSnapshot
     )
   };
 };
@@ -959,10 +1004,21 @@ const computeCarryoverTarget = (
 
 const buildStructureEventInput = (
   occupancy: PrototypeLaneOccupancySnapshot,
-  sharedLaneModifier: ReturnType<typeof buildHeadlessBridgeLaneModifier>
+  sharedLaneModifier: ReturnType<typeof buildHeadlessBridgeLaneModifier>,
+  sharedSiegeWindow: SharedSiegeWindowSnapshot
 ): StructurePressureEventTrackerInput => {
   const segmentPresence = occupancy.segmentOccupancyPresence;
   const contact = occupancy.structureContactByTier;
+  const siegeWindowActiveByTier: Record<StructurePressureTier, boolean> = {
+    outer: sharedSiegeWindow.siegeWindowActive && sharedSiegeWindow.sourceTier === 'outer',
+    inner: sharedSiegeWindow.siegeWindowActive && sharedSiegeWindow.sourceTier === 'inner',
+    core: sharedSiegeWindow.siegeWindowActive && sharedSiegeWindow.sourceTier === 'core'
+  };
+  const siegeWindowSecondsByTier: Record<StructurePressureTier, number> = {
+    outer: siegeWindowActiveByTier.outer ? sharedSiegeWindow.siegeWindowRemainingSeconds : 0,
+    inner: siegeWindowActiveByTier.inner ? sharedSiegeWindow.siegeWindowRemainingSeconds : 0,
+    core: siegeWindowActiveByTier.core ? sharedSiegeWindow.siegeWindowRemainingSeconds : 0
+  };
 
   return {
     byTier: {
@@ -974,12 +1030,18 @@ const buildStructureEventInput = (
           0,
           1
         ),
-        contactActive: contact.outer.active,
-        contactWindowSeconds: contact.outer.windowSeconds,
+        contactActive: contact.outer.active || siegeWindowActiveByTier.outer,
+        contactWindowSeconds: Math.max(
+          contact.outer.windowSeconds,
+          siegeWindowSecondsByTier.outer
+        ),
         lanePressure: clamp(
           segmentPresence['outer-front'] * 0.62 +
             contact.outer.pressure * 0.38 +
-            sharedLaneModifier.lanePressureBySegment['outer-front'],
+            sharedLaneModifier.lanePressureBySegment['outer-front'] +
+            (siegeWindowActiveByTier.outer
+              ? sharedSiegeWindow.pressureSupportLevel * 0.06
+              : 0),
           0,
           1
         )
@@ -992,12 +1054,18 @@ const buildStructureEventInput = (
           0,
           1
         ),
-        contactActive: contact.inner.active,
-        contactWindowSeconds: contact.inner.windowSeconds,
+        contactActive: contact.inner.active || siegeWindowActiveByTier.inner,
+        contactWindowSeconds: Math.max(
+          contact.inner.windowSeconds,
+          siegeWindowSecondsByTier.inner
+        ),
         lanePressure: clamp(
           segmentPresence['inner-siege'] * 0.62 +
             contact.inner.pressure * 0.38 +
-            sharedLaneModifier.lanePressureBySegment['inner-siege'],
+            sharedLaneModifier.lanePressureBySegment['inner-siege'] +
+            (siegeWindowActiveByTier.inner
+              ? sharedSiegeWindow.pressureSupportLevel * 0.06
+              : 0),
           0,
           1
         )
@@ -1010,12 +1078,18 @@ const buildStructureEventInput = (
           0,
           1
         ),
-        contactActive: contact.core.active,
-        contactWindowSeconds: contact.core.windowSeconds,
+        contactActive: contact.core.active || siegeWindowActiveByTier.core,
+        contactWindowSeconds: Math.max(
+          contact.core.windowSeconds,
+          siegeWindowSecondsByTier.core
+        ),
         lanePressure: clamp(
           segmentPresence['core-approach'] * 0.62 +
             contact.core.pressure * 0.38 +
-            sharedLaneModifier.lanePressureBySegment['core-approach'],
+            sharedLaneModifier.lanePressureBySegment['core-approach'] +
+            (siegeWindowActiveByTier.core
+              ? sharedSiegeWindow.pressureSupportLevel * 0.06
+              : 0),
           0,
           1
         )

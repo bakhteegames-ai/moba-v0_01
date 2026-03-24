@@ -182,6 +182,60 @@ debugWindow.render_game_to_text = (): string => {
               .lastBridgeOutcomeSummary
         }
       },
+      sharedSiegeWindow: {
+        active: liveInteractionSnapshot.signalProvider.sharedSiegeWindow
+          .siegeWindowActive,
+        remaining: round(
+          liveInteractionSnapshot.signalProvider.sharedSiegeWindow
+            .siegeWindowRemainingSeconds
+        ),
+        sourceSegment:
+          liveInteractionSnapshot.signalProvider.sharedSiegeWindow.sourceSegment,
+        sourceTier:
+          liveInteractionSnapshot.signalProvider.sharedSiegeWindow.sourceTier,
+        triggerReason:
+          liveInteractionSnapshot.signalProvider.sharedSiegeWindow
+            .triggerReason,
+        pressureSupport: round(
+          liveInteractionSnapshot.signalProvider.sharedSiegeWindow
+            .pressureSupportLevel
+        ),
+        occupancySupport: round(
+          liveInteractionSnapshot.signalProvider.sharedSiegeWindow
+            .occupancySupportLevel
+        ),
+        summary: liveInteractionSnapshot.signalProvider.sharedSiegeWindow.summary
+      },
+      sharedStructureConversion: {
+        active:
+          liveInteractionSnapshot.signalProvider.sharedStructureConversion
+            .conversionActive,
+        progress: round(
+          liveInteractionSnapshot.signalProvider.sharedStructureConversion
+            .conversionProgress
+        ),
+        threshold: round(
+          liveInteractionSnapshot.signalProvider.sharedStructureConversion
+            .conversionThreshold
+        ),
+        eligible:
+          liveInteractionSnapshot.signalProvider.sharedStructureConversion
+            .conversionEligible,
+        sourceSegment:
+          liveInteractionSnapshot.signalProvider.sharedStructureConversion
+            .sourceSegment,
+        sourceTier:
+          liveInteractionSnapshot.signalProvider.sharedStructureConversion
+            .sourceTier,
+        triggerReason:
+          liveInteractionSnapshot.signalProvider.sharedStructureConversion
+            .triggerReason,
+        lastResolvedStructureStep:
+          liveInteractionSnapshot.signalProvider.sharedStructureConversion
+            .lastResolvedStructureStep,
+        summary:
+          liveInteractionSnapshot.signalProvider.sharedStructureConversion.summary
+      },
       determinismProof: {
         passed: snapshot.laneDeterminismProof.passed,
         signature: snapshot.laneDeterminismProof.signature,

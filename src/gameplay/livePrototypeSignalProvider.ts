@@ -72,6 +72,14 @@ import {
   cloneHeadlessBridgeLaneConsequenceSnapshot,
   type HeadlessBridgeLaneConsequenceSnapshot
 } from './headlessBridgeConsequenceAdapter';
+import {
+  cloneSharedSiegeWindowSnapshot,
+  type SharedSiegeWindowTriggerReason
+} from './sharedSiegeWindowConversion';
+import {
+  cloneSharedStructureConversionSnapshot,
+  type SharedStructureConversionSnapshot
+} from './sharedStructureConversionStep';
 
 type TierScalars = Record<StructurePressureTier, number>;
 type SegmentScalars = Record<LanePressureSegment, number>;
@@ -434,6 +442,17 @@ export interface LivePrototypeSignalProviderDebugState {
     decisionSignalSufficient: boolean;
   };
   sharedLaneConsequence: HeadlessBridgeLaneConsequenceSnapshot;
+  sharedSiegeWindow: {
+    siegeWindowActive: boolean;
+    siegeWindowRemainingSeconds: number;
+    sourceSegment: LanePressureSegment;
+    sourceTier: StructurePressureTier;
+    triggerReason: SharedSiegeWindowTriggerReason;
+    pressureSupportLevel: number;
+    occupancySupportLevel: number;
+    summary: string;
+  };
+  sharedStructureConversion: SharedStructureConversionSnapshot;
   defenderStateByTier: Record<StructurePressureTier, DefenderHoldState>;
 }
 
@@ -454,6 +473,8 @@ export interface LivePrototypeSignalEventContext {
   calibrationOperatorWorkflow: LivePrototypeSignalProviderDebugState['calibrationOperatorWorkflow'];
   calibrationOperatorLoopClosure: LivePrototypeSignalProviderDebugState['calibrationOperatorLoopClosure'];
   sharedLaneConsequence: LivePrototypeSignalProviderDebugState['sharedLaneConsequence'];
+  sharedSiegeWindow: LivePrototypeSignalProviderDebugState['sharedSiegeWindow'];
+  sharedStructureConversion: LivePrototypeSignalProviderDebugState['sharedStructureConversion'];
 }
 
 export interface LivePrototypeSignalProvider {
@@ -564,7 +585,10 @@ export const createLivePrototypeSignalProvider =
           calibrationOperatorWorkflow: cloneCalibrationOperatorWorkflowDebug(snapshot),
           calibrationOperatorLoopClosure:
             cloneCalibrationOperatorLoopClosureDebug(snapshot),
-          sharedLaneConsequence: cloneSharedLaneConsequenceDebug(snapshot)
+          sharedLaneConsequence: cloneSharedLaneConsequenceDebug(snapshot),
+          sharedSiegeWindow: cloneSharedSiegeWindowDebug(snapshot),
+          sharedStructureConversion:
+            cloneSharedStructureConversionDebug(snapshot)
         };
       },
       getDebugState() {
@@ -609,6 +633,9 @@ export const createLivePrototypeSignalProvider =
           calibrationOperatorLoopClosure:
             cloneCalibrationOperatorLoopClosureDebug(snapshot),
           sharedLaneConsequence: cloneSharedLaneConsequenceDebug(snapshot),
+          sharedSiegeWindow: cloneSharedSiegeWindowDebug(snapshot),
+          sharedStructureConversion:
+            cloneSharedStructureConversionDebug(snapshot),
           defenderStateByTier: { ...snapshot.defenderStateByTier }
         };
       }
@@ -1476,6 +1503,16 @@ const cloneSharedLaneConsequenceDebug = (
   snapshot: PrototypeLaneStateSnapshot
 ): LivePrototypeSignalProviderDebugState['sharedLaneConsequence'] =>
   cloneHeadlessBridgeLaneConsequenceSnapshot(snapshot.sharedLaneConsequence);
+
+const cloneSharedSiegeWindowDebug = (
+  snapshot: PrototypeLaneStateSnapshot
+): LivePrototypeSignalProviderDebugState['sharedSiegeWindow'] =>
+  cloneSharedSiegeWindowSnapshot(snapshot.sharedSiegeWindow);
+
+const cloneSharedStructureConversionDebug = (
+  snapshot: PrototypeLaneStateSnapshot
+): LivePrototypeSignalProviderDebugState['sharedStructureConversion'] =>
+  cloneSharedStructureConversionSnapshot(snapshot.sharedStructureConversion);
 
 const cloneSignals = (signals: LivePrototypeSignals): LivePrototypeSignals => ({
   wave: {

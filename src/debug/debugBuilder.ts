@@ -354,6 +354,10 @@ export const createDebugSystem = (
     const headlessCombat = state?.headlessCombat;
     const sharedLaneConsequence =
       state?.liveInteraction?.signalProvider.sharedLaneConsequence;
+    const sharedSiegeWindow =
+      state?.liveInteraction?.signalProvider.sharedSiegeWindow;
+    const sharedStructureConversion =
+      state?.liveInteraction?.signalProvider.sharedStructureConversion;
     const headlessCombatMarkup = headlessCombat
       ? `
         <div class="debug-muted">Hero: <span class="debug-strong">${formatCombatHitPoints(headlessCombat.player.currentHp, headlessCombat.player.maxHp)}</span> | alive <span class="debug-strong">${headlessCombat.player.alive ? 'Yes' : 'No'}</span> | cd <span class="debug-strong">${headlessCombat.player.basicAbilityCooldownRemaining.toFixed(2)}s</span></div>
@@ -362,6 +366,8 @@ export const createDebugSystem = (
         <div class="debug-muted">Failure reason: <span class="debug-strong">${formatHeadlessCombatFailureReason(headlessCombat.lastLegalityFailureReason)}</span></div>
         <div class="debug-muted">Lane bridge: hero <span class="debug-strong">${formatPressureSegment(headlessCombat.laneBridge.hero.lanePressureSegment)}</span>, blocker <span class="debug-strong">${formatPressureSegment(headlessCombat.laneBridge.blocker.lanePressureSegment)}</span> / <span class="debug-strong">${formatStructureTier(headlessCombat.laneBridge.blocker.structurePressureTier)}</span> | pressure <span class="debug-strong">${formatSignedDelta(headlessCombat.laneBridge.lanePressureDelta)}</span> | occupancy <span class="debug-strong">${headlessCombat.laneBridge.occupancyAdvantage.toFixed(2)}</span> | opportunity <span class="debug-strong">${headlessCombat.laneBridge.structurePressureOpportunityActive ? 'Open' : 'Closed'}</span> ${headlessCombat.laneBridge.opportunityWindowRemainingSeconds.toFixed(2)}s</div>
         <div class="debug-muted">Shared consumer: <span class="debug-strong">${sharedLaneConsequence ? `${formatPressureSegment(sharedLaneConsequence.affectedSegment)} / ${formatStructureTier(sharedLaneConsequence.affectedTier)}` : 'Unavailable'}</span> | pressure <span class="debug-strong">${sharedLaneConsequence ? formatSignedDelta(sharedLaneConsequence.pressureDelta) : 'n/a'}</span> | occupancy <span class="debug-strong">${sharedLaneConsequence ? sharedLaneConsequence.occupancyAdvantage.toFixed(2) : 'n/a'}</span> | ${sharedLaneConsequence?.opportunityActive ? 'active' : 'idle'} ${sharedLaneConsequence ? `${sharedLaneConsequence.opportunityRemainingSeconds.toFixed(2)}s` : ''}</div>
+        <div class="debug-muted">Siege window: <span class="debug-strong">${sharedSiegeWindow?.siegeWindowActive ? 'Open' : 'Closed'}</span> ${sharedSiegeWindow ? `${sharedSiegeWindow.siegeWindowRemainingSeconds.toFixed(2)}s` : ''} | <span class="debug-strong">${sharedSiegeWindow ? `${formatPressureSegment(sharedSiegeWindow.sourceSegment)} / ${formatStructureTier(sharedSiegeWindow.sourceTier)}` : 'n/a'}</span> | support <span class="debug-strong">${sharedSiegeWindow ? `${sharedSiegeWindow.pressureSupportLevel.toFixed(2)} / ${sharedSiegeWindow.occupancySupportLevel.toFixed(2)}` : 'n/a'}</span></div>
+        <div class="debug-muted">Structure step: <span class="debug-strong">${sharedStructureConversion?.conversionActive ? 'Active' : 'Idle'}</span> | prog <span class="debug-strong">${sharedStructureConversion ? `${sharedStructureConversion.conversionProgress.toFixed(2)} / ${sharedStructureConversion.conversionThreshold.toFixed(2)}` : 'n/a'}</span> | eligible <span class="debug-strong">${sharedStructureConversion?.conversionEligible ? 'Yes' : 'No'}</span> | last <span class="debug-strong">${sharedStructureConversion ? formatSharedStructureResolvedStep(sharedStructureConversion.lastResolvedStructureStep) : 'n/a'}</span></div>
         <div class="debug-muted">Bridge outcome: <span class="debug-strong">${headlessCombat.laneBridge.lastBridgeOutcome.summary}</span> | proof <span class="debug-strong">${headlessCombat.laneDeterminismProof.passed ? 'Deterministic' : 'Mismatch'}</span></div>
       `
       : '<div class="debug-muted">Headless combat slice unavailable.</div>';
@@ -1385,6 +1391,21 @@ const formatHeadlessCombatFailureReason = (
         : reason === 'invalid-target'
           ? 'Invalid Target'
           : 'None';
+
+const formatSharedStructureResolvedStep = (
+  step:
+    | 'none'
+    | 'outer-pressure-step-confirmed'
+    | 'inner-pressure-step-confirmed'
+    | 'core-pressure-step-confirmed'
+): string =>
+  step === 'outer-pressure-step-confirmed'
+    ? 'Outer Pressure Step'
+    : step === 'inner-pressure-step-confirmed'
+      ? 'Inner Pressure Step'
+      : step === 'core-pressure-step-confirmed'
+        ? 'Core Pressure Step'
+        : 'None';
 
 const formatCalibrationBlockingFactors = (factors: string[]): string =>
   factors.length > 0 ? factors.join(', ') : 'None';

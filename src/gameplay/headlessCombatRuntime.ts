@@ -23,6 +23,7 @@ import {
   buildHeadlessBridgeLaneModifier,
   type HeadlessBridgeLaneConsequenceSnapshot
 } from './headlessBridgeConsequenceAdapter';
+import { createPrototypeLaneStateLoop } from './prototypeLaneStateLoop';
 
 export interface HeadlessCombatRuntimeEntitySnapshot {
   id: string;
@@ -273,7 +274,7 @@ const runLaneDeterminismProof = (
     passed,
     signature: firstSignature,
     summary: passed
-      ? 'Repeated fixed-step blocker-clear script produced the same shared lane consequence injection.'
+      ? 'Repeated fixed-step blocker-clear script produced the same bounded shared structure-conversion lifecycle.'
       : 'Fixed-step blocker-clear script diverged between identical runs.'
   };
 };
@@ -322,8 +323,12 @@ const runDeterministicBridgeScenario = (
     ]
   });
   const proofBridge = createHeadlessCombatLaneBridgeModel(laneBridgeConfig);
+  const proofLaneStateLoop = createPrototypeLaneStateLoop();
 
   proofBridge.update(0, proofSimulation.getSnapshot());
+  proofLaneStateLoop.setSharedLaneConsequence(
+    adaptHeadlessCombatLaneBridgeToLaneConsequence(proofBridge.getSnapshot())
+  );
 
   for (let hitIndex = 0; hitIndex < 3; hitIndex += 1) {
     proofSimulation.submitCastIntent(playerHeroId, {
@@ -331,11 +336,17 @@ const runDeterministicBridgeScenario = (
       abilityId: basicAbility.id,
       targetEntityId: laneBlockerId
     });
-    advanceDeterministicScenario(proofSimulation, proofBridge, 1);
+    advanceDeterministicScenario(
+      proofSimulation,
+      proofBridge,
+      proofLaneStateLoop,
+      1
+    );
     if (hitIndex < 2) {
       advanceDeterministicScenario(
         proofSimulation,
         proofBridge,
+        proofLaneStateLoop,
         Math.round(basicAbility.cooldownSeconds / fixedStepSeconds)
       );
     }
@@ -344,6 +355,7 @@ const runDeterministicBridgeScenario = (
   advanceDeterministicScenario(
     proofSimulation,
     proofBridge,
+    proofLaneStateLoop,
     Math.round(0.75 / fixedStepSeconds)
   );
 
@@ -353,6 +365,16 @@ const runDeterministicBridgeScenario = (
     adaptHeadlessCombatLaneBridgeToLaneConsequence(bridgeSnapshot);
   const sharedLaneModifier =
     buildHeadlessBridgeLaneModifier(sharedLaneConsequence);
+  const sharedLaneSnapshot = proofLaneStateLoop.getSnapshot();
+  const resolvedStructureConversion =
+    sharedLaneSnapshot.sharedStructureConversion;
+  advanceDeterministicScenario(
+    proofSimulation,
+    proofBridge,
+    proofLaneStateLoop,
+    Math.round(5 / fixedStepSeconds)
+  );
+  const expiredLaneSnapshot = proofLaneStateLoop.getSnapshot();
   const blocker = getSnapshotEntity(simulationSnapshot, laneBlockerId);
 
   return [
@@ -374,7 +396,26 @@ const runDeterministicBridgeScenario = (
         sharedLaneConsequence.affectedTier
       ]
     ),
-    sharedLaneConsequence.lastBridgeOutcomeKind
+    sharedLaneConsequence.lastBridgeOutcomeKind,
+    sharedLaneSnapshot.sharedSiegeWindow.siegeWindowActive ? 'open' : 'closed',
+    round(sharedLaneSnapshot.sharedSiegeWindow.siegeWindowRemainingSeconds),
+    sharedLaneSnapshot.sharedSiegeWindow.sourceSegment,
+    sharedLaneSnapshot.sharedSiegeWindow.sourceTier,
+    sharedLaneSnapshot.sharedSiegeWindow.triggerReason,
+    round(sharedLaneSnapshot.sharedSiegeWindow.pressureSupportLevel),
+    round(sharedLaneSnapshot.sharedSiegeWindow.occupancySupportLevel),
+    resolvedStructureConversion.conversionActive ? 'active' : 'idle',
+    round(resolvedStructureConversion.conversionProgress),
+    round(resolvedStructureConversion.conversionThreshold),
+    resolvedStructureConversion.conversionEligible ? 'eligible' : 'ineligible',
+    resolvedStructureConversion.triggerReason,
+    resolvedStructureConversion.lastResolvedStructureStep,
+    expiredLaneSnapshot.sharedStructureConversion.conversionActive
+      ? 'active'
+      : 'idle',
+    round(expiredLaneSnapshot.sharedStructureConversion.conversionProgress),
+    expiredLaneSnapshot.sharedStructureConversion.triggerReason,
+    expiredLaneSnapshot.sharedStructureConversion.lastResolvedStructureStep
   ].join('|');
 };
 
@@ -385,12 +426,23 @@ const advanceDeterministicScenario = (
   },
   laneBridge: {
     update(dt: number, snapshot: HeadlessCombatSimulationSnapshot): void;
+    getSnapshot(): HeadlessCombatLaneBridgeSnapshot;
+  },
+  laneStateLoop: {
+    setSharedLaneConsequence(
+      consequence: HeadlessBridgeLaneConsequenceSnapshot
+    ): void;
+    update(dt: number): void;
   },
   steps: number
 ): void => {
   for (let stepIndex = 0; stepIndex < steps; stepIndex += 1) {
     simulation.update(fixedStepSeconds);
     laneBridge.update(fixedStepSeconds, simulation.getSnapshot());
+    laneStateLoop.setSharedLaneConsequence(
+      adaptHeadlessCombatLaneBridgeToLaneConsequence(laneBridge.getSnapshot())
+    );
+    laneStateLoop.update(fixedStepSeconds);
   }
 };
 
