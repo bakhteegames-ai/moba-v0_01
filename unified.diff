@@ -1,594 +1,3 @@
-diff --git a/src/debug/debugBuilder.ts b/src/debug/debugBuilder.ts
-index 2927071..c51560a 100644
---- a/src/debug/debugBuilder.ts
-+++ b/src/debug/debugBuilder.ts
-@@ -358,6 +358,12 @@ export const createDebugSystem = (
-       state?.liveInteraction?.signalProvider.sharedSiegeWindow;
-     const sharedStructureConversion =
-       state?.liveInteraction?.signalProvider.sharedStructureConversion;
-+    const sharedClosureAdvancement =
-+      state?.liveInteraction?.signalProvider.sharedClosureAdvancement;
-+    const sharedDefenderResponse =
-+      state?.liveInteraction?.signalProvider.sharedDefenderResponse;
-+    const sharedPushReassertion =
-+      state?.liveInteraction?.signalProvider.sharedPushReassertion;
-     const headlessCombatMarkup = headlessCombat
-       ? `
-         <div class="debug-muted">Hero: <span class="debug-strong">${formatCombatHitPoints(headlessCombat.player.currentHp, headlessCombat.player.maxHp)}</span> | alive <span class="debug-strong">${headlessCombat.player.alive ? 'Yes' : 'No'}</span> | cd <span class="debug-strong">${headlessCombat.player.basicAbilityCooldownRemaining.toFixed(2)}s</span></div>
-@@ -367,7 +373,10 @@ export const createDebugSystem = (
-         <div class="debug-muted">Lane bridge: hero <span class="debug-strong">${formatPressureSegment(headlessCombat.laneBridge.hero.lanePressureSegment)}</span>, blocker <span class="debug-strong">${formatPressureSegment(headlessCombat.laneBridge.blocker.lanePressureSegment)}</span> / <span class="debug-strong">${formatStructureTier(headlessCombat.laneBridge.blocker.structurePressureTier)}</span> | pressure <span class="debug-strong">${formatSignedDelta(headlessCombat.laneBridge.lanePressureDelta)}</span> | occupancy <span class="debug-strong">${headlessCombat.laneBridge.occupancyAdvantage.toFixed(2)}</span> | opportunity <span class="debug-strong">${headlessCombat.laneBridge.structurePressureOpportunityActive ? 'Open' : 'Closed'}</span> ${headlessCombat.laneBridge.opportunityWindowRemainingSeconds.toFixed(2)}s</div>
-         <div class="debug-muted">Shared consumer: <span class="debug-strong">${sharedLaneConsequence ? `${formatPressureSegment(sharedLaneConsequence.affectedSegment)} / ${formatStructureTier(sharedLaneConsequence.affectedTier)}` : 'Unavailable'}</span> | pressure <span class="debug-strong">${sharedLaneConsequence ? formatSignedDelta(sharedLaneConsequence.pressureDelta) : 'n/a'}</span> | occupancy <span class="debug-strong">${sharedLaneConsequence ? sharedLaneConsequence.occupancyAdvantage.toFixed(2) : 'n/a'}</span> | ${sharedLaneConsequence?.opportunityActive ? 'active' : 'idle'} ${sharedLaneConsequence ? `${sharedLaneConsequence.opportunityRemainingSeconds.toFixed(2)}s` : ''}</div>
-         <div class="debug-muted">Siege window: <span class="debug-strong">${sharedSiegeWindow?.siegeWindowActive ? 'Open' : 'Closed'}</span> ${sharedSiegeWindow ? `${sharedSiegeWindow.siegeWindowRemainingSeconds.toFixed(2)}s` : ''} | <span class="debug-strong">${sharedSiegeWindow ? `${formatPressureSegment(sharedSiegeWindow.sourceSegment)} / ${formatStructureTier(sharedSiegeWindow.sourceTier)}` : 'n/a'}</span> | support <span class="debug-strong">${sharedSiegeWindow ? `${sharedSiegeWindow.pressureSupportLevel.toFixed(2)} / ${sharedSiegeWindow.occupancySupportLevel.toFixed(2)}` : 'n/a'}</span></div>
-+        <div class="debug-muted">Defender contest: <span class="debug-strong">${sharedDefenderResponse?.responseActive ? 'Active' : 'Idle'}</span> | eligible <span class="debug-strong">${sharedDefenderResponse?.responseEligible ? 'Yes' : 'No'}</span> | cd <span class="debug-strong">${sharedDefenderResponse ? sharedDefenderResponse.responseCooldownRemaining.toFixed(2) : 'n/a'}</span> | suppress <span class="debug-strong">${sharedDefenderResponse ? `${sharedDefenderResponse.structureConversionSuppression.toFixed(2)} / ${sharedDefenderResponse.closureAdvancementSuppression.toFixed(2)}` : 'n/a'}</span> | last <span class="debug-strong">${sharedDefenderResponse ? formatSharedDefenderResponseAction(sharedDefenderResponse.lastResolvedResponseAction) : 'n/a'}</span></div>
-+        <div class="debug-muted">Blue answer: <span class="debug-strong">${sharedPushReassertion?.recoveryActive ? 'Active' : 'Idle'}</span> | eligible <span class="debug-strong">${sharedPushReassertion?.recoveryEligible ? 'Yes' : 'No'}</span> | restore <span class="debug-strong">${sharedPushReassertion ? `${sharedPushReassertion.structureSuppressionRecovery.toFixed(2)} / ${sharedPushReassertion.closureSuppressionRecovery.toFixed(2)}` : 'n/a'}</span> | last <span class="debug-strong">${sharedPushReassertion ? formatSharedPushReassertionAction(sharedPushReassertion.lastResolvedRecoveryAction) : 'n/a'}</span></div>
-         <div class="debug-muted">Structure step: <span class="debug-strong">${sharedStructureConversion?.conversionActive ? 'Active' : 'Idle'}</span> | prog <span class="debug-strong">${sharedStructureConversion ? `${sharedStructureConversion.conversionProgress.toFixed(2)} / ${sharedStructureConversion.conversionThreshold.toFixed(2)}` : 'n/a'}</span> | eligible <span class="debug-strong">${sharedStructureConversion?.conversionEligible ? 'Yes' : 'No'}</span> | last <span class="debug-strong">${sharedStructureConversion ? formatSharedStructureResolvedStep(sharedStructureConversion.lastResolvedStructureStep) : 'n/a'}</span></div>
-+        <div class="debug-muted">Closure hook: <span class="debug-strong">${sharedClosureAdvancement?.closureAdvancementActive ? 'Active' : 'Idle'}</span> | value <span class="debug-strong">${sharedClosureAdvancement ? sharedClosureAdvancement.closureAdvancementValue.toFixed(2) : 'n/a'}</span> | ready <span class="debug-strong">${sharedClosureAdvancement ? sharedClosureAdvancement.readinessLevel.toFixed(2) : 'n/a'}</span> | last <span class="debug-strong">${sharedClosureAdvancement ? formatSharedClosureResolvedStep(sharedClosureAdvancement.lastResolvedClosureStep) : 'n/a'}</span></div>
-         <div class="debug-muted">Bridge outcome: <span class="debug-strong">${headlessCombat.laneBridge.lastBridgeOutcome.summary}</span> | proof <span class="debug-strong">${headlessCombat.laneDeterminismProof.passed ? 'Deterministic' : 'Mismatch'}</span></div>
-       `
-       : '<div class="debug-muted">Headless combat slice unavailable.</div>';
-@@ -1407,6 +1416,27 @@ const formatSharedStructureResolvedStep = (
-         ? 'Core Pressure Step'
-         : 'None';
- 
-+const formatSharedClosureResolvedStep = (
-+  step: 'none' | 'anti-stall-readiness-raised'
-+): string =>
-+  step === 'anti-stall-readiness-raised'
-+    ? 'Anti-Stall Raised'
-+    : 'None';
-+
-+const formatSharedDefenderResponseAction = (
-+  action: 'none' | 'contest-pulse-fired'
-+): string =>
-+  action === 'contest-pulse-fired'
-+    ? 'Contest Pulse'
-+    : 'None';
-+
-+const formatSharedPushReassertionAction = (
-+  action: 'none' | 'push-reassertion-pulse-fired'
-+): string =>
-+  action === 'push-reassertion-pulse-fired'
-+    ? 'Reassertion Pulse'
-+    : 'None';
-+
- const formatCalibrationBlockingFactors = (factors: string[]): string =>
-   factors.length > 0 ? factors.join(', ') : 'None';
- 
-diff --git a/src/gameplay/headlessCombatRuntime.ts b/src/gameplay/headlessCombatRuntime.ts
-index e90ae6c..450c2d7 100644
---- a/src/gameplay/headlessCombatRuntime.ts
-+++ b/src/gameplay/headlessCombatRuntime.ts
-@@ -75,6 +75,9 @@ const basicAbility = {
-   damage: 34
- };
- const fixedStepSeconds = 1 / 60;
-+const deterministicApproachLeadSeconds = 7;
-+const deterministicCastConfirmSeconds = 0.1;
-+const deterministicContestSampleSeconds = 0.25;
- 
- export const createHeadlessCombatRuntime = (): HeadlessCombatRuntime => {
-   const arena = createArenaFromLayout();
-@@ -274,7 +277,7 @@ const runLaneDeterminismProof = (
-     passed,
-     signature: firstSignature,
-     summary: passed
--      ? 'Repeated fixed-step blocker-clear script produced the same bounded shared structure-conversion lifecycle.'
-+      ? 'Repeated fixed-step blocker-clear script produced the same bounded mirrored contest and recovery exchange.'
-       : 'Fixed-step blocker-clear script diverged between identical runs.'
-   };
- };
-@@ -329,6 +332,12 @@ const runDeterministicBridgeScenario = (
-   proofLaneStateLoop.setSharedLaneConsequence(
-     adaptHeadlessCombatLaneBridgeToLaneConsequence(proofBridge.getSnapshot())
-   );
-+  advanceDeterministicScenario(
-+    proofSimulation,
-+    proofBridge,
-+    proofLaneStateLoop,
-+    Math.round(deterministicApproachLeadSeconds / fixedStepSeconds)
-+  );
- 
-   for (let hitIndex = 0; hitIndex < 3; hitIndex += 1) {
-     proofSimulation.submitCastIntent(playerHeroId, {
-@@ -340,7 +349,7 @@ const runDeterministicBridgeScenario = (
-       proofSimulation,
-       proofBridge,
-       proofLaneStateLoop,
--      1
-+      Math.round(deterministicCastConfirmSeconds / fixedStepSeconds)
-     );
-     if (hitIndex < 2) {
-       advanceDeterministicScenario(
-@@ -356,7 +365,7 @@ const runDeterministicBridgeScenario = (
-     proofSimulation,
-     proofBridge,
-     proofLaneStateLoop,
--    Math.round(0.75 / fixedStepSeconds)
-+    Math.round(deterministicContestSampleSeconds / fixedStepSeconds)
-   );
- 
-   const simulationSnapshot = proofSimulation.getSnapshot();
-@@ -366,8 +375,14 @@ const runDeterministicBridgeScenario = (
-   const sharedLaneModifier =
-     buildHeadlessBridgeLaneModifier(sharedLaneConsequence);
-   const sharedLaneSnapshot = proofLaneStateLoop.getSnapshot();
-+  const resolvedDefenderResponse =
-+    sharedLaneSnapshot.sharedDefenderResponse;
-+  const resolvedPushReassertion =
-+    sharedLaneSnapshot.sharedPushReassertion;
-   const resolvedStructureConversion =
-     sharedLaneSnapshot.sharedStructureConversion;
-+  const resolvedClosureAdvancement =
-+    sharedLaneSnapshot.sharedClosureAdvancement;
-   advanceDeterministicScenario(
-     proofSimulation,
-     proofBridge,
-@@ -404,18 +419,70 @@ const runDeterministicBridgeScenario = (
-     sharedLaneSnapshot.sharedSiegeWindow.triggerReason,
-     round(sharedLaneSnapshot.sharedSiegeWindow.pressureSupportLevel),
-     round(sharedLaneSnapshot.sharedSiegeWindow.occupancySupportLevel),
-+    resolvedDefenderResponse.responseActive ? 'active' : 'idle',
-+    resolvedDefenderResponse.responseEligible ? 'eligible' : 'ineligible',
-+    round(resolvedDefenderResponse.structureConversionSuppression),
-+    round(resolvedDefenderResponse.closureAdvancementSuppression),
-+    resolvedDefenderResponse.triggerReason,
-+    resolvedDefenderResponse.lastResolvedResponseAction,
-+    resolvedPushReassertion.recoveryActive ? 'active' : 'idle',
-+    resolvedPushReassertion.recoveryEligible ? 'eligible' : 'ineligible',
-+    round(resolvedPushReassertion.structureSuppressionRecovery),
-+    round(resolvedPushReassertion.closureSuppressionRecovery),
-+    resolvedPushReassertion.triggerReason,
-+    resolvedPushReassertion.lastResolvedRecoveryAction,
-     resolvedStructureConversion.conversionActive ? 'active' : 'idle',
-     round(resolvedStructureConversion.conversionProgress),
-     round(resolvedStructureConversion.conversionThreshold),
-     resolvedStructureConversion.conversionEligible ? 'eligible' : 'ineligible',
-     resolvedStructureConversion.triggerReason,
-     resolvedStructureConversion.lastResolvedStructureStep,
-+    resolvedClosureAdvancement.closureAdvancementActive ? 'active' : 'idle',
-+    round(resolvedClosureAdvancement.closureAdvancementValue),
-+    round(resolvedClosureAdvancement.readinessLevel),
-+    resolvedClosureAdvancement.readinessEligible ? 'eligible' : 'ineligible',
-+    resolvedClosureAdvancement.triggerReason,
-+    resolvedClosureAdvancement.lastResolvedClosureStep,
-     expiredLaneSnapshot.sharedStructureConversion.conversionActive
-       ? 'active'
-       : 'idle',
-     round(expiredLaneSnapshot.sharedStructureConversion.conversionProgress),
-     expiredLaneSnapshot.sharedStructureConversion.triggerReason,
--    expiredLaneSnapshot.sharedStructureConversion.lastResolvedStructureStep
-+    expiredLaneSnapshot.sharedStructureConversion.lastResolvedStructureStep,
-+    expiredLaneSnapshot.sharedDefenderResponse.responseActive
-+      ? 'active'
-+      : 'idle',
-+    expiredLaneSnapshot.sharedDefenderResponse.responseEligible
-+      ? 'eligible'
-+      : 'ineligible',
-+    round(
-+      expiredLaneSnapshot.sharedDefenderResponse.structureConversionSuppression
-+    ),
-+    round(
-+      expiredLaneSnapshot.sharedDefenderResponse.closureAdvancementSuppression
-+    ),
-+    expiredLaneSnapshot.sharedDefenderResponse.triggerReason,
-+    expiredLaneSnapshot.sharedDefenderResponse.lastResolvedResponseAction,
-+    expiredLaneSnapshot.sharedPushReassertion.recoveryActive
-+      ? 'active'
-+      : 'idle',
-+    expiredLaneSnapshot.sharedPushReassertion.recoveryEligible
-+      ? 'eligible'
-+      : 'ineligible',
-+    round(
-+      expiredLaneSnapshot.sharedPushReassertion.structureSuppressionRecovery
-+    ),
-+    round(
-+      expiredLaneSnapshot.sharedPushReassertion.closureSuppressionRecovery
-+    ),
-+    expiredLaneSnapshot.sharedPushReassertion.triggerReason,
-+    expiredLaneSnapshot.sharedPushReassertion.lastResolvedRecoveryAction,
-+    expiredLaneSnapshot.sharedClosureAdvancement.closureAdvancementActive
-+      ? 'active'
-+      : 'idle',
-+    round(expiredLaneSnapshot.sharedClosureAdvancement.closureAdvancementValue),
-+    expiredLaneSnapshot.sharedClosureAdvancement.triggerReason,
-+    expiredLaneSnapshot.sharedClosureAdvancement.lastResolvedClosureStep
-   ].join('|');
- };
- 
-diff --git a/src/gameplay/livePrototypeSignalProvider.ts b/src/gameplay/livePrototypeSignalProvider.ts
-index 246d912..f717580 100644
---- a/src/gameplay/livePrototypeSignalProvider.ts
-+++ b/src/gameplay/livePrototypeSignalProvider.ts
-@@ -80,6 +80,18 @@ import {
-   cloneSharedStructureConversionSnapshot,
-   type SharedStructureConversionSnapshot
- } from './sharedStructureConversionStep';
-+import {
-+  cloneSharedClosureAdvancementSnapshot,
-+  type SharedClosureAdvancementSnapshot
-+} from './sharedClosureAdvancementHook';
-+import {
-+  cloneSharedDefenderResponseSnapshot,
-+  type SharedDefenderResponseSnapshot
-+} from './sharedDefenderResponseSlice';
-+import {
-+  cloneSharedPushReassertionSnapshot,
-+  type SharedPushReassertionSnapshot
-+} from './sharedPushReassertionSlice';
- 
- type TierScalars = Record<StructurePressureTier, number>;
- type SegmentScalars = Record<LanePressureSegment, number>;
-@@ -453,6 +465,9 @@ export interface LivePrototypeSignalProviderDebugState {
-     summary: string;
-   };
-   sharedStructureConversion: SharedStructureConversionSnapshot;
-+  sharedClosureAdvancement: SharedClosureAdvancementSnapshot;
-+  sharedDefenderResponse: SharedDefenderResponseSnapshot;
-+  sharedPushReassertion: SharedPushReassertionSnapshot;
-   defenderStateByTier: Record<StructurePressureTier, DefenderHoldState>;
- }
- 
-@@ -475,6 +490,9 @@ export interface LivePrototypeSignalEventContext {
-   sharedLaneConsequence: LivePrototypeSignalProviderDebugState['sharedLaneConsequence'];
-   sharedSiegeWindow: LivePrototypeSignalProviderDebugState['sharedSiegeWindow'];
-   sharedStructureConversion: LivePrototypeSignalProviderDebugState['sharedStructureConversion'];
-+  sharedClosureAdvancement: LivePrototypeSignalProviderDebugState['sharedClosureAdvancement'];
-+  sharedDefenderResponse: LivePrototypeSignalProviderDebugState['sharedDefenderResponse'];
-+  sharedPushReassertion: LivePrototypeSignalProviderDebugState['sharedPushReassertion'];
- }
- 
- export interface LivePrototypeSignalProvider {
-@@ -588,7 +606,13 @@ export const createLivePrototypeSignalProvider =
-           sharedLaneConsequence: cloneSharedLaneConsequenceDebug(snapshot),
-           sharedSiegeWindow: cloneSharedSiegeWindowDebug(snapshot),
-           sharedStructureConversion:
--            cloneSharedStructureConversionDebug(snapshot)
-+            cloneSharedStructureConversionDebug(snapshot),
-+          sharedClosureAdvancement:
-+            cloneSharedClosureAdvancementDebug(snapshot),
-+          sharedDefenderResponse:
-+            cloneSharedDefenderResponseDebug(snapshot),
-+          sharedPushReassertion:
-+            cloneSharedPushReassertionDebug(snapshot)
-         };
-       },
-       getDebugState() {
-@@ -636,6 +660,12 @@ export const createLivePrototypeSignalProvider =
-           sharedSiegeWindow: cloneSharedSiegeWindowDebug(snapshot),
-           sharedStructureConversion:
-             cloneSharedStructureConversionDebug(snapshot),
-+          sharedClosureAdvancement:
-+            cloneSharedClosureAdvancementDebug(snapshot),
-+          sharedDefenderResponse:
-+            cloneSharedDefenderResponseDebug(snapshot),
-+          sharedPushReassertion:
-+            cloneSharedPushReassertionDebug(snapshot),
-           defenderStateByTier: { ...snapshot.defenderStateByTier }
-         };
-       }
-@@ -1514,6 +1544,21 @@ const cloneSharedStructureConversionDebug = (
- ): LivePrototypeSignalProviderDebugState['sharedStructureConversion'] =>
-   cloneSharedStructureConversionSnapshot(snapshot.sharedStructureConversion);
- 
-+const cloneSharedClosureAdvancementDebug = (
-+  snapshot: PrototypeLaneStateSnapshot
-+): LivePrototypeSignalProviderDebugState['sharedClosureAdvancement'] =>
-+  cloneSharedClosureAdvancementSnapshot(snapshot.sharedClosureAdvancement);
-+
-+const cloneSharedDefenderResponseDebug = (
-+  snapshot: PrototypeLaneStateSnapshot
-+): LivePrototypeSignalProviderDebugState['sharedDefenderResponse'] =>
-+  cloneSharedDefenderResponseSnapshot(snapshot.sharedDefenderResponse);
-+
-+const cloneSharedPushReassertionDebug = (
-+  snapshot: PrototypeLaneStateSnapshot
-+): LivePrototypeSignalProviderDebugState['sharedPushReassertion'] =>
-+  cloneSharedPushReassertionSnapshot(snapshot.sharedPushReassertion);
-+
- const cloneSignals = (signals: LivePrototypeSignals): LivePrototypeSignals => ({
-   wave: {
-     progressionBySegment: { ...signals.wave.progressionBySegment },
-diff --git a/src/gameplay/prototypeLaneStateLoop.ts b/src/gameplay/prototypeLaneStateLoop.ts
-index 6e1d7bc..00d2179 100644
---- a/src/gameplay/prototypeLaneStateLoop.ts
-+++ b/src/gameplay/prototypeLaneStateLoop.ts
-@@ -98,6 +98,24 @@ import {
-   createDefaultSharedStructureConversionSnapshot,
-   type SharedStructureConversionSnapshot
- } from './sharedStructureConversionStep';
-+import {
-+  advanceSharedClosureAdvancementSnapshot,
-+  cloneSharedClosureAdvancementSnapshot,
-+  createDefaultSharedClosureAdvancementSnapshot,
-+  type SharedClosureAdvancementSnapshot
-+} from './sharedClosureAdvancementHook';
-+import {
-+  advanceSharedDefenderResponseSnapshot,
-+  cloneSharedDefenderResponseSnapshot,
-+  createDefaultSharedDefenderResponseSnapshot,
-+  type SharedDefenderResponseSnapshot
-+} from './sharedDefenderResponseSlice';
-+import {
-+  advanceSharedPushReassertionSnapshot,
-+  cloneSharedPushReassertionSnapshot,
-+  createDefaultSharedPushReassertionSnapshot,
-+  type SharedPushReassertionSnapshot
-+} from './sharedPushReassertionSlice';
- 
- type SegmentValues = Record<LanePressureSegment, number>;
- type TierValues = Record<StructurePressureTier, number>;
-@@ -153,6 +171,9 @@ export interface PrototypeLaneStateSnapshot {
-   sharedLaneConsequence: HeadlessBridgeLaneConsequenceSnapshot;
-   sharedSiegeWindow: SharedSiegeWindowSnapshot;
-   sharedStructureConversion: SharedStructureConversionSnapshot;
-+  sharedClosureAdvancement: SharedClosureAdvancementSnapshot;
-+  sharedDefenderResponse: SharedDefenderResponseSnapshot;
-+  sharedPushReassertion: SharedPushReassertionSnapshot;
- }
- 
- export interface PrototypeLaneOutcomeSample {
-@@ -231,6 +252,12 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
-   let sharedSiegeWindow = createDefaultSharedSiegeWindowSnapshot();
-   let sharedStructureConversion =
-     createDefaultSharedStructureConversionSnapshot();
-+  let sharedClosureAdvancement =
-+    createDefaultSharedClosureAdvancementSnapshot();
-+  let sharedDefenderResponse =
-+    createDefaultSharedDefenderResponseSnapshot();
-+  let sharedPushReassertion =
-+    createDefaultSharedPushReassertionSnapshot();
-   const memory: LaneStateMemory = {
-     elapsedSeconds: 0,
-     carryoverPressureState: 1,
-@@ -342,14 +369,6 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
-         eventSnapshot
-       );
-       const resolutionSnapshot = structureResolutionMemory.getSnapshot();
--      sharedStructureConversion = advanceSharedStructureConversionSnapshot({
--        dt,
--        previous: sharedStructureConversion,
--        sharedSiegeWindow,
--        structurePressureByTier: structurePressureEstimate,
--        eventByTier: eventSnapshot.byTier,
--        resolutionByTier: resolutionSnapshot.byTier
--      });
-       laneClosurePosture.update(dt, {
-         resolutionByTier: {
-           outer: resolutionSnapshot.byTier.outer,
-@@ -362,6 +381,64 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
-         consecutiveWaveCarryoverRelevance: occupancy.consecutiveWaveCarryoverRelevance
-       });
-       const laneClosureSnapshot = laneClosurePosture.getSnapshot();
-+      sharedDefenderResponse = advanceSharedDefenderResponseSnapshot({
-+        dt,
-+        previous: sharedDefenderResponse,
-+        sharedSiegeWindow,
-+        structureConversion: sharedStructureConversion,
-+        laneClosure: laneClosureSnapshot
-+      });
-+      sharedPushReassertion = advanceSharedPushReassertionSnapshot({
-+        dt,
-+        previous: sharedPushReassertion,
-+        sharedSiegeWindow,
-+        structureConversion: sharedStructureConversion,
-+        defenderResponse: sharedDefenderResponse,
-+        laneClosure: laneClosureSnapshot
-+      });
-+      const effectiveStructureSuppression = clamp(
-+        sharedDefenderResponse.structureConversionSuppression -
-+          sharedPushReassertion.structureSuppressionRecovery,
-+        0,
-+        0.2
-+      );
-+      const effectiveClosureSuppression = clamp(
-+        sharedDefenderResponse.closureAdvancementSuppression -
-+          sharedPushReassertion.closureSuppressionRecovery,
-+        0,
-+        0.35
-+      );
-+      sharedStructureConversion = advanceSharedStructureConversionSnapshot({
-+        dt,
-+        previous: sharedStructureConversion,
-+        sharedSiegeWindow,
-+        structurePressureByTier: structurePressureEstimate,
-+        eventByTier: eventSnapshot.byTier,
-+        resolutionByTier: resolutionSnapshot.byTier,
-+        progressSuppression: effectiveStructureSuppression
-+      });
-+      sharedClosureAdvancement = advanceSharedClosureAdvancementSnapshot({
-+        dt,
-+        previous: sharedClosureAdvancement,
-+        structureConversion: sharedStructureConversion,
-+        laneClosure: laneClosureSnapshot,
-+        readinessSuppression: effectiveClosureSuppression
-+      });
-+      const closureCarryoverPressureState = clamp(
-+        memory.carryoverPressureState +
-+          sharedClosureAdvancement.closureAdvancementValue * 0.03 -
-+          effectiveClosureSuppression * 0.02,
-+        carryoverStateMin,
-+        carryoverStateMax
-+      );
-+      const closureCarryoverRelevance = clamp(
-+        occupancy.consecutiveWaveCarryoverRelevance +
-+          sharedClosureAdvancement.readinessLevel * 0.08 +
-+          (sharedClosureAdvancement.lastResolvedClosureStep !== 'none' ? 0.04 : 0) -
-+          effectiveClosureSuppression * 0.08,
-+        0,
-+        1
-+      );
-       closurePacingInterpreter.update(dt, {
-         laneClosure: laneClosureSnapshot,
-         resolutionByTier: {
-@@ -372,8 +449,8 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
-         structurePressureByTier: structurePressureEstimate,
-         structureContactByTier: occupancy.structureContactByTier,
-         lanePressureBySegment: lanePressureEstimate,
--        carryoverPressureState: memory.carryoverPressureState,
--        consecutiveWaveCarryoverRelevance: occupancy.consecutiveWaveCarryoverRelevance
-+        carryoverPressureState: closureCarryoverPressureState,
-+        consecutiveWaveCarryoverRelevance: closureCarryoverRelevance
-       });
-       const closurePacingSnapshot = closurePacingInterpreter.getSnapshot();
-       closurePacingWatch.update(dt, {
-@@ -484,7 +561,10 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
-         calibrationOperatorLoopClosureSnapshot,
-         sharedLaneConsequence,
-         sharedSiegeWindow,
--        sharedStructureConversion
-+        sharedStructureConversion,
-+        sharedClosureAdvancement,
-+        sharedDefenderResponse,
-+        sharedPushReassertion
-       );
-     },
-     recordOutcome(sample) {
-@@ -681,7 +761,10 @@ const computeSnapshot = (
-   calibrationOperatorLoopClosureSnapshot: CalibrationOperatorLoopClosureSnapshot,
-   sharedLaneConsequenceSnapshot: HeadlessBridgeLaneConsequenceSnapshot,
-   sharedSiegeWindowSnapshot: SharedSiegeWindowSnapshot,
--  sharedStructureConversionSnapshot: SharedStructureConversionSnapshot
-+  sharedStructureConversionSnapshot: SharedStructureConversionSnapshot,
-+  sharedClosureAdvancementSnapshot: SharedClosureAdvancementSnapshot,
-+  sharedDefenderResponseSnapshot: SharedDefenderResponseSnapshot,
-+  sharedPushReassertionSnapshot: SharedPushReassertionSnapshot
- ): PrototypeLaneStateSnapshot => {
-   const sharedLaneModifier =
-     buildHeadlessBridgeLaneModifier(sharedLaneConsequenceSnapshot);
-@@ -970,6 +1053,15 @@ const computeSnapshot = (
-     ),
-     sharedStructureConversion: cloneSharedStructureConversionSnapshot(
-       sharedStructureConversionSnapshot
-+    ),
-+    sharedClosureAdvancement: cloneSharedClosureAdvancementSnapshot(
-+      sharedClosureAdvancementSnapshot
-+    ),
-+    sharedDefenderResponse: cloneSharedDefenderResponseSnapshot(
-+      sharedDefenderResponseSnapshot
-+    ),
-+    sharedPushReassertion: cloneSharedPushReassertionSnapshot(
-+      sharedPushReassertionSnapshot
-     )
-   };
- };
-diff --git a/src/main.ts b/src/main.ts
-index c6def75..08c15fe 100644
---- a/src/main.ts
-+++ b/src/main.ts
-@@ -236,6 +236,112 @@ debugWindow.render_game_to_text = (): string => {
-         summary:
-           liveInteractionSnapshot.signalProvider.sharedStructureConversion.summary
-       },
-+      sharedClosureAdvancement: {
-+        active:
-+          liveInteractionSnapshot.signalProvider.sharedClosureAdvancement
-+            .closureAdvancementActive,
-+        value: round(
-+          liveInteractionSnapshot.signalProvider.sharedClosureAdvancement
-+            .closureAdvancementValue
-+        ),
-+        readinessLevel: round(
-+          liveInteractionSnapshot.signalProvider.sharedClosureAdvancement
-+            .readinessLevel
-+        ),
-+        eligible:
-+          liveInteractionSnapshot.signalProvider.sharedClosureAdvancement
-+            .readinessEligible,
-+        sourceSegment:
-+          liveInteractionSnapshot.signalProvider.sharedClosureAdvancement
-+            .sourceSegment,
-+        sourceTier:
-+          liveInteractionSnapshot.signalProvider.sharedClosureAdvancement
-+            .sourceTier,
-+        triggerReason:
-+          liveInteractionSnapshot.signalProvider.sharedClosureAdvancement
-+            .triggerReason,
-+        lastResolvedClosureStep:
-+          liveInteractionSnapshot.signalProvider.sharedClosureAdvancement
-+            .lastResolvedClosureStep,
-+        summary:
-+          liveInteractionSnapshot.signalProvider.sharedClosureAdvancement.summary
-+      },
-+      sharedDefenderResponse: {
-+        active:
-+          liveInteractionSnapshot.signalProvider.sharedDefenderResponse
-+            .responseActive,
-+        eligible:
-+          liveInteractionSnapshot.signalProvider.sharedDefenderResponse
-+            .responseEligible,
-+        cooldownRemaining: round(
-+          liveInteractionSnapshot.signalProvider.sharedDefenderResponse
-+            .responseCooldownRemaining
-+        ),
-+        remaining: round(
-+          liveInteractionSnapshot.signalProvider.sharedDefenderResponse
-+            .responseRemainingSeconds
-+        ),
-+        sourceSegment:
-+          liveInteractionSnapshot.signalProvider.sharedDefenderResponse
-+            .sourceSegment,
-+        sourceTier:
-+          liveInteractionSnapshot.signalProvider.sharedDefenderResponse
-+            .sourceTier,
-+        structureSuppression: round(
-+          liveInteractionSnapshot.signalProvider.sharedDefenderResponse
-+            .structureConversionSuppression
-+        ),
-+        closureSuppression: round(
-+          liveInteractionSnapshot.signalProvider.sharedDefenderResponse
-+            .closureAdvancementSuppression
-+        ),
-+        triggerReason:
-+          liveInteractionSnapshot.signalProvider.sharedDefenderResponse
-+            .triggerReason,
-+        lastResolvedResponseAction:
-+          liveInteractionSnapshot.signalProvider.sharedDefenderResponse
-+            .lastResolvedResponseAction,
-+        summary:
-+          liveInteractionSnapshot.signalProvider.sharedDefenderResponse.summary
-+      },
-+      sharedPushReassertion: {
-+        active:
-+          liveInteractionSnapshot.signalProvider.sharedPushReassertion
-+            .recoveryActive,
-+        eligible:
-+          liveInteractionSnapshot.signalProvider.sharedPushReassertion
-+            .recoveryEligible,
-+        cooldownRemaining: round(
-+          liveInteractionSnapshot.signalProvider.sharedPushReassertion
-+            .recoveryCooldownRemaining
-+        ),
-+        remaining: round(
-+          liveInteractionSnapshot.signalProvider.sharedPushReassertion
-+            .recoveryRemainingSeconds
-+        ),
-+        sourceSegment:
-+          liveInteractionSnapshot.signalProvider.sharedPushReassertion
-+            .sourceSegment,
-+        sourceTier:
-+          liveInteractionSnapshot.signalProvider.sharedPushReassertion
-+            .sourceTier,
-+        structureRecovery: round(
-+          liveInteractionSnapshot.signalProvider.sharedPushReassertion
-+            .structureSuppressionRecovery
-+        ),
-+        closureRecovery: round(
-+          liveInteractionSnapshot.signalProvider.sharedPushReassertion
-+            .closureSuppressionRecovery
-+        ),
-+        triggerReason:
-+          liveInteractionSnapshot.signalProvider.sharedPushReassertion
-+            .triggerReason,
-+        lastResolvedRecoveryAction:
-+          liveInteractionSnapshot.signalProvider.sharedPushReassertion
-+            .lastResolvedRecoveryAction,
-+        summary:
-+          liveInteractionSnapshot.signalProvider.sharedPushReassertion.summary
-+      },
-       determinismProof: {
-         passed: snapshot.laneDeterminismProof.passed,
-         signature: snapshot.laneDeterminismProof.signature,
-
 diff --git a/src/gameplay/sharedPushReassertionSlice.ts b/src/gameplay/sharedPushReassertionSlice.ts
 new file mode 100644
 index 0000000..c6198f9
@@ -851,3 +260,354 @@ index 0000000..c6198f9
 +
 +const clamp = (value: number, min: number, max: number): number =>
 +  Math.max(min, Math.min(max, value));
+
+diff --git a/src/gameplay/prototypeLaneStateLoop.ts b/src/gameplay/prototypeLaneStateLoop.ts
+index 6573022..00d2179 100644
+--- a/src/gameplay/prototypeLaneStateLoop.ts
++++ b/src/gameplay/prototypeLaneStateLoop.ts
+@@ -110,6 +110,12 @@ import {
+   createDefaultSharedDefenderResponseSnapshot,
+   type SharedDefenderResponseSnapshot
+ } from './sharedDefenderResponseSlice';
++import {
++  advanceSharedPushReassertionSnapshot,
++  cloneSharedPushReassertionSnapshot,
++  createDefaultSharedPushReassertionSnapshot,
++  type SharedPushReassertionSnapshot
++} from './sharedPushReassertionSlice';
+ 
+ type SegmentValues = Record<LanePressureSegment, number>;
+ type TierValues = Record<StructurePressureTier, number>;
+@@ -167,6 +173,7 @@ export interface PrototypeLaneStateSnapshot {
+   sharedStructureConversion: SharedStructureConversionSnapshot;
+   sharedClosureAdvancement: SharedClosureAdvancementSnapshot;
+   sharedDefenderResponse: SharedDefenderResponseSnapshot;
++  sharedPushReassertion: SharedPushReassertionSnapshot;
+ }
+ 
+ export interface PrototypeLaneOutcomeSample {
+@@ -249,6 +256,8 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
+     createDefaultSharedClosureAdvancementSnapshot();
+   let sharedDefenderResponse =
+     createDefaultSharedDefenderResponseSnapshot();
++  let sharedPushReassertion =
++    createDefaultSharedPushReassertionSnapshot();
+   const memory: LaneStateMemory = {
+     elapsedSeconds: 0,
+     carryoverPressureState: 1,
+@@ -379,6 +388,26 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
+         structureConversion: sharedStructureConversion,
+         laneClosure: laneClosureSnapshot
+       });
++      sharedPushReassertion = advanceSharedPushReassertionSnapshot({
++        dt,
++        previous: sharedPushReassertion,
++        sharedSiegeWindow,
++        structureConversion: sharedStructureConversion,
++        defenderResponse: sharedDefenderResponse,
++        laneClosure: laneClosureSnapshot
++      });
++      const effectiveStructureSuppression = clamp(
++        sharedDefenderResponse.structureConversionSuppression -
++          sharedPushReassertion.structureSuppressionRecovery,
++        0,
++        0.2
++      );
++      const effectiveClosureSuppression = clamp(
++        sharedDefenderResponse.closureAdvancementSuppression -
++          sharedPushReassertion.closureSuppressionRecovery,
++        0,
++        0.35
++      );
+       sharedStructureConversion = advanceSharedStructureConversionSnapshot({
+         dt,
+         previous: sharedStructureConversion,
+@@ -386,21 +415,19 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
+         structurePressureByTier: structurePressureEstimate,
+         eventByTier: eventSnapshot.byTier,
+         resolutionByTier: resolutionSnapshot.byTier,
+-        progressSuppression:
+-          sharedDefenderResponse.structureConversionSuppression
++        progressSuppression: effectiveStructureSuppression
+       });
+       sharedClosureAdvancement = advanceSharedClosureAdvancementSnapshot({
+         dt,
+         previous: sharedClosureAdvancement,
+         structureConversion: sharedStructureConversion,
+         laneClosure: laneClosureSnapshot,
+-        readinessSuppression:
+-          sharedDefenderResponse.closureAdvancementSuppression
++        readinessSuppression: effectiveClosureSuppression
+       });
+       const closureCarryoverPressureState = clamp(
+         memory.carryoverPressureState +
+           sharedClosureAdvancement.closureAdvancementValue * 0.03 -
+-          sharedDefenderResponse.closureAdvancementSuppression * 0.02,
++          effectiveClosureSuppression * 0.02,
+         carryoverStateMin,
+         carryoverStateMax
+       );
+@@ -408,7 +435,7 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
+         occupancy.consecutiveWaveCarryoverRelevance +
+           sharedClosureAdvancement.readinessLevel * 0.08 +
+           (sharedClosureAdvancement.lastResolvedClosureStep !== 'none' ? 0.04 : 0) -
+-          sharedDefenderResponse.closureAdvancementSuppression * 0.08,
++          effectiveClosureSuppression * 0.08,
+         0,
+         1
+       );
+@@ -536,7 +563,8 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
+         sharedSiegeWindow,
+         sharedStructureConversion,
+         sharedClosureAdvancement,
+-        sharedDefenderResponse
++        sharedDefenderResponse,
++        sharedPushReassertion
+       );
+     },
+     recordOutcome(sample) {
+@@ -735,7 +763,8 @@ const computeSnapshot = (
+   sharedSiegeWindowSnapshot: SharedSiegeWindowSnapshot,
+   sharedStructureConversionSnapshot: SharedStructureConversionSnapshot,
+   sharedClosureAdvancementSnapshot: SharedClosureAdvancementSnapshot,
+-  sharedDefenderResponseSnapshot: SharedDefenderResponseSnapshot
++  sharedDefenderResponseSnapshot: SharedDefenderResponseSnapshot,
++  sharedPushReassertionSnapshot: SharedPushReassertionSnapshot
+ ): PrototypeLaneStateSnapshot => {
+   const sharedLaneModifier =
+     buildHeadlessBridgeLaneModifier(sharedLaneConsequenceSnapshot);
+@@ -1030,6 +1059,9 @@ const computeSnapshot = (
+     ),
+     sharedDefenderResponse: cloneSharedDefenderResponseSnapshot(
+       sharedDefenderResponseSnapshot
++    ),
++    sharedPushReassertion: cloneSharedPushReassertionSnapshot(
++      sharedPushReassertionSnapshot
+     )
+   };
+ };
+
+diff --git a/src/gameplay/livePrototypeSignalProvider.ts b/src/gameplay/livePrototypeSignalProvider.ts
+index deccc23..f717580 100644
+--- a/src/gameplay/livePrototypeSignalProvider.ts
++++ b/src/gameplay/livePrototypeSignalProvider.ts
+@@ -88,6 +88,10 @@ import {
+   cloneSharedDefenderResponseSnapshot,
+   type SharedDefenderResponseSnapshot
+ } from './sharedDefenderResponseSlice';
++import {
++  cloneSharedPushReassertionSnapshot,
++  type SharedPushReassertionSnapshot
++} from './sharedPushReassertionSlice';
+ 
+ type TierScalars = Record<StructurePressureTier, number>;
+ type SegmentScalars = Record<LanePressureSegment, number>;
+@@ -463,6 +467,7 @@ export interface LivePrototypeSignalProviderDebugState {
+   sharedStructureConversion: SharedStructureConversionSnapshot;
+   sharedClosureAdvancement: SharedClosureAdvancementSnapshot;
+   sharedDefenderResponse: SharedDefenderResponseSnapshot;
++  sharedPushReassertion: SharedPushReassertionSnapshot;
+   defenderStateByTier: Record<StructurePressureTier, DefenderHoldState>;
+ }
+ 
+@@ -487,6 +492,7 @@ export interface LivePrototypeSignalEventContext {
+   sharedStructureConversion: LivePrototypeSignalProviderDebugState['sharedStructureConversion'];
+   sharedClosureAdvancement: LivePrototypeSignalProviderDebugState['sharedClosureAdvancement'];
+   sharedDefenderResponse: LivePrototypeSignalProviderDebugState['sharedDefenderResponse'];
++  sharedPushReassertion: LivePrototypeSignalProviderDebugState['sharedPushReassertion'];
+ }
+ 
+ export interface LivePrototypeSignalProvider {
+@@ -604,7 +610,9 @@ export const createLivePrototypeSignalProvider =
+           sharedClosureAdvancement:
+             cloneSharedClosureAdvancementDebug(snapshot),
+           sharedDefenderResponse:
+-            cloneSharedDefenderResponseDebug(snapshot)
++            cloneSharedDefenderResponseDebug(snapshot),
++          sharedPushReassertion:
++            cloneSharedPushReassertionDebug(snapshot)
+         };
+       },
+       getDebugState() {
+@@ -656,6 +664,8 @@ export const createLivePrototypeSignalProvider =
+             cloneSharedClosureAdvancementDebug(snapshot),
+           sharedDefenderResponse:
+             cloneSharedDefenderResponseDebug(snapshot),
++          sharedPushReassertion:
++            cloneSharedPushReassertionDebug(snapshot),
+           defenderStateByTier: { ...snapshot.defenderStateByTier }
+         };
+       }
+@@ -1544,6 +1554,10 @@ const cloneSharedDefenderResponseDebug = (
+ ): LivePrototypeSignalProviderDebugState['sharedDefenderResponse'] =>
+   cloneSharedDefenderResponseSnapshot(snapshot.sharedDefenderResponse);
+ 
++const cloneSharedPushReassertionDebug = (
++  snapshot: PrototypeLaneStateSnapshot
++): LivePrototypeSignalProviderDebugState['sharedPushReassertion'] =>
++  cloneSharedPushReassertionSnapshot(snapshot.sharedPushReassertion);
+ 
+ const cloneSignals = (signals: LivePrototypeSignals): LivePrototypeSignals => ({
+   wave: {
+
+diff --git a/src/main.ts b/src/main.ts
+index a754d4f..08c15fe 100644
+--- a/src/main.ts
++++ b/src/main.ts
+@@ -304,6 +304,44 @@ debugWindow.render_game_to_text = (): string => {
+         summary:
+           liveInteractionSnapshot.signalProvider.sharedDefenderResponse.summary
+       },
++      sharedPushReassertion: {
++        active:
++          liveInteractionSnapshot.signalProvider.sharedPushReassertion
++            .recoveryActive,
++        eligible:
++          liveInteractionSnapshot.signalProvider.sharedPushReassertion
++            .recoveryEligible,
++        cooldownRemaining: round(
++          liveInteractionSnapshot.signalProvider.sharedPushReassertion
++            .recoveryCooldownRemaining
++        ),
++        remaining: round(
++          liveInteractionSnapshot.signalProvider.sharedPushReassertion
++            .recoveryRemainingSeconds
++        ),
++        sourceSegment:
++          liveInteractionSnapshot.signalProvider.sharedPushReassertion
++            .sourceSegment,
++        sourceTier:
++          liveInteractionSnapshot.signalProvider.sharedPushReassertion
++            .sourceTier,
++        structureRecovery: round(
++          liveInteractionSnapshot.signalProvider.sharedPushReassertion
++            .structureSuppressionRecovery
++        ),
++        closureRecovery: round(
++          liveInteractionSnapshot.signalProvider.sharedPushReassertion
++            .closureSuppressionRecovery
++        ),
++        triggerReason:
++          liveInteractionSnapshot.signalProvider.sharedPushReassertion
++            .triggerReason,
++        lastResolvedRecoveryAction:
++          liveInteractionSnapshot.signalProvider.sharedPushReassertion
++            .lastResolvedRecoveryAction,
++        summary:
++          liveInteractionSnapshot.signalProvider.sharedPushReassertion.summary
++      },
+       determinismProof: {
+         passed: snapshot.laneDeterminismProof.passed,
+         signature: snapshot.laneDeterminismProof.signature,
+
+diff --git a/src/debug/debugBuilder.ts b/src/debug/debugBuilder.ts
+index 99dcfc3..c51560a 100644
+--- a/src/debug/debugBuilder.ts
++++ b/src/debug/debugBuilder.ts
+@@ -362,6 +362,8 @@ export const createDebugSystem = (
+       state?.liveInteraction?.signalProvider.sharedClosureAdvancement;
+     const sharedDefenderResponse =
+       state?.liveInteraction?.signalProvider.sharedDefenderResponse;
++    const sharedPushReassertion =
++      state?.liveInteraction?.signalProvider.sharedPushReassertion;
+     const headlessCombatMarkup = headlessCombat
+       ? `
+         <div class="debug-muted">Hero: <span class="debug-strong">${formatCombatHitPoints(headlessCombat.player.currentHp, headlessCombat.player.maxHp)}</span> | alive <span class="debug-strong">${headlessCombat.player.alive ? 'Yes' : 'No'}</span> | cd <span class="debug-strong">${headlessCombat.player.basicAbilityCooldownRemaining.toFixed(2)}s</span></div>
+@@ -372,6 +374,7 @@ export const createDebugSystem = (
+         <div class="debug-muted">Shared consumer: <span class="debug-strong">${sharedLaneConsequence ? `${formatPressureSegment(sharedLaneConsequence.affectedSegment)} / ${formatStructureTier(sharedLaneConsequence.affectedTier)}` : 'Unavailable'}</span> | pressure <span class="debug-strong">${sharedLaneConsequence ? formatSignedDelta(sharedLaneConsequence.pressureDelta) : 'n/a'}</span> | occupancy <span class="debug-strong">${sharedLaneConsequence ? sharedLaneConsequence.occupancyAdvantage.toFixed(2) : 'n/a'}</span> | ${sharedLaneConsequence?.opportunityActive ? 'active' : 'idle'} ${sharedLaneConsequence ? `${sharedLaneConsequence.opportunityRemainingSeconds.toFixed(2)}s` : ''}</div>
+         <div class="debug-muted">Siege window: <span class="debug-strong">${sharedSiegeWindow?.siegeWindowActive ? 'Open' : 'Closed'}</span> ${sharedSiegeWindow ? `${sharedSiegeWindow.siegeWindowRemainingSeconds.toFixed(2)}s` : ''} | <span class="debug-strong">${sharedSiegeWindow ? `${formatPressureSegment(sharedSiegeWindow.sourceSegment)} / ${formatStructureTier(sharedSiegeWindow.sourceTier)}` : 'n/a'}</span> | support <span class="debug-strong">${sharedSiegeWindow ? `${sharedSiegeWindow.pressureSupportLevel.toFixed(2)} / ${sharedSiegeWindow.occupancySupportLevel.toFixed(2)}` : 'n/a'}</span></div>
+         <div class="debug-muted">Defender contest: <span class="debug-strong">${sharedDefenderResponse?.responseActive ? 'Active' : 'Idle'}</span> | eligible <span class="debug-strong">${sharedDefenderResponse?.responseEligible ? 'Yes' : 'No'}</span> | cd <span class="debug-strong">${sharedDefenderResponse ? sharedDefenderResponse.responseCooldownRemaining.toFixed(2) : 'n/a'}</span> | suppress <span class="debug-strong">${sharedDefenderResponse ? `${sharedDefenderResponse.structureConversionSuppression.toFixed(2)} / ${sharedDefenderResponse.closureAdvancementSuppression.toFixed(2)}` : 'n/a'}</span> | last <span class="debug-strong">${sharedDefenderResponse ? formatSharedDefenderResponseAction(sharedDefenderResponse.lastResolvedResponseAction) : 'n/a'}</span></div>
++        <div class="debug-muted">Blue answer: <span class="debug-strong">${sharedPushReassertion?.recoveryActive ? 'Active' : 'Idle'}</span> | eligible <span class="debug-strong">${sharedPushReassertion?.recoveryEligible ? 'Yes' : 'No'}</span> | restore <span class="debug-strong">${sharedPushReassertion ? `${sharedPushReassertion.structureSuppressionRecovery.toFixed(2)} / ${sharedPushReassertion.closureSuppressionRecovery.toFixed(2)}` : 'n/a'}</span> | last <span class="debug-strong">${sharedPushReassertion ? formatSharedPushReassertionAction(sharedPushReassertion.lastResolvedRecoveryAction) : 'n/a'}</span></div>
+         <div class="debug-muted">Structure step: <span class="debug-strong">${sharedStructureConversion?.conversionActive ? 'Active' : 'Idle'}</span> | prog <span class="debug-strong">${sharedStructureConversion ? `${sharedStructureConversion.conversionProgress.toFixed(2)} / ${sharedStructureConversion.conversionThreshold.toFixed(2)}` : 'n/a'}</span> | eligible <span class="debug-strong">${sharedStructureConversion?.conversionEligible ? 'Yes' : 'No'}</span> | last <span class="debug-strong">${sharedStructureConversion ? formatSharedStructureResolvedStep(sharedStructureConversion.lastResolvedStructureStep) : 'n/a'}</span></div>
+         <div class="debug-muted">Closure hook: <span class="debug-strong">${sharedClosureAdvancement?.closureAdvancementActive ? 'Active' : 'Idle'}</span> | value <span class="debug-strong">${sharedClosureAdvancement ? sharedClosureAdvancement.closureAdvancementValue.toFixed(2) : 'n/a'}</span> | ready <span class="debug-strong">${sharedClosureAdvancement ? sharedClosureAdvancement.readinessLevel.toFixed(2) : 'n/a'}</span> | last <span class="debug-strong">${sharedClosureAdvancement ? formatSharedClosureResolvedStep(sharedClosureAdvancement.lastResolvedClosureStep) : 'n/a'}</span></div>
+         <div class="debug-muted">Bridge outcome: <span class="debug-strong">${headlessCombat.laneBridge.lastBridgeOutcome.summary}</span> | proof <span class="debug-strong">${headlessCombat.laneDeterminismProof.passed ? 'Deterministic' : 'Mismatch'}</span></div>
+@@ -1427,6 +1430,12 @@ const formatSharedDefenderResponseAction = (
+     ? 'Contest Pulse'
+     : 'None';
+ 
++const formatSharedPushReassertionAction = (
++  action: 'none' | 'push-reassertion-pulse-fired'
++): string =>
++  action === 'push-reassertion-pulse-fired'
++    ? 'Reassertion Pulse'
++    : 'None';
+ 
+ const formatCalibrationBlockingFactors = (factors: string[]): string =>
+   factors.length > 0 ? factors.join(', ') : 'None';
+
+diff --git a/src/gameplay/headlessCombatRuntime.ts b/src/gameplay/headlessCombatRuntime.ts
+index c9dc98c..450c2d7 100644
+--- a/src/gameplay/headlessCombatRuntime.ts
++++ b/src/gameplay/headlessCombatRuntime.ts
+@@ -76,7 +76,8 @@ const basicAbility = {
+ };
+ const fixedStepSeconds = 1 / 60;
+ const deterministicApproachLeadSeconds = 7;
+-const deterministicContestSampleSeconds = 0.9;
++const deterministicCastConfirmSeconds = 0.1;
++const deterministicContestSampleSeconds = 0.25;
+ 
+ export const createHeadlessCombatRuntime = (): HeadlessCombatRuntime => {
+   const arena = createArenaFromLayout();
+@@ -276,7 +277,7 @@ const runLaneDeterminismProof = (
+     passed,
+     signature: firstSignature,
+     summary: passed
+-      ? 'Repeated fixed-step blocker-clear script produced the same bounded defender contest pulse and shared progression suppression.'
++      ? 'Repeated fixed-step blocker-clear script produced the same bounded mirrored contest and recovery exchange.'
+       : 'Fixed-step blocker-clear script diverged between identical runs.'
+   };
+ };
+@@ -348,7 +349,7 @@ const runDeterministicBridgeScenario = (
+       proofSimulation,
+       proofBridge,
+       proofLaneStateLoop,
+-      1
++      Math.round(deterministicCastConfirmSeconds / fixedStepSeconds)
+     );
+     if (hitIndex < 2) {
+       advanceDeterministicScenario(
+@@ -376,6 +377,8 @@ const runDeterministicBridgeScenario = (
+   const sharedLaneSnapshot = proofLaneStateLoop.getSnapshot();
+   const resolvedDefenderResponse =
+     sharedLaneSnapshot.sharedDefenderResponse;
++  const resolvedPushReassertion =
++    sharedLaneSnapshot.sharedPushReassertion;
+   const resolvedStructureConversion =
+     sharedLaneSnapshot.sharedStructureConversion;
+   const resolvedClosureAdvancement =
+@@ -422,6 +425,12 @@ const runDeterministicBridgeScenario = (
+     round(resolvedDefenderResponse.closureAdvancementSuppression),
+     resolvedDefenderResponse.triggerReason,
+     resolvedDefenderResponse.lastResolvedResponseAction,
++    resolvedPushReassertion.recoveryActive ? 'active' : 'idle',
++    resolvedPushReassertion.recoveryEligible ? 'eligible' : 'ineligible',
++    round(resolvedPushReassertion.structureSuppressionRecovery),
++    round(resolvedPushReassertion.closureSuppressionRecovery),
++    resolvedPushReassertion.triggerReason,
++    resolvedPushReassertion.lastResolvedRecoveryAction,
+     resolvedStructureConversion.conversionActive ? 'active' : 'idle',
+     round(resolvedStructureConversion.conversionProgress),
+     round(resolvedStructureConversion.conversionThreshold),
+@@ -454,6 +463,20 @@ const runDeterministicBridgeScenario = (
+     ),
+     expiredLaneSnapshot.sharedDefenderResponse.triggerReason,
+     expiredLaneSnapshot.sharedDefenderResponse.lastResolvedResponseAction,
++    expiredLaneSnapshot.sharedPushReassertion.recoveryActive
++      ? 'active'
++      : 'idle',
++    expiredLaneSnapshot.sharedPushReassertion.recoveryEligible
++      ? 'eligible'
++      : 'ineligible',
++    round(
++      expiredLaneSnapshot.sharedPushReassertion.structureSuppressionRecovery
++    ),
++    round(
++      expiredLaneSnapshot.sharedPushReassertion.closureSuppressionRecovery
++    ),
++    expiredLaneSnapshot.sharedPushReassertion.triggerReason,
++    expiredLaneSnapshot.sharedPushReassertion.lastResolvedRecoveryAction,
+     expiredLaneSnapshot.sharedClosureAdvancement.closureAdvancementActive
+       ? 'active'
+       : 'idle',
+
