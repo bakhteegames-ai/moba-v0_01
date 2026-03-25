@@ -1,10 +1,11 @@
+import { clamp } from './calibrationUtils';
+import { gameplayTuningConfig } from './gameplayTuningConfig';
 import { type StructurePressureTier } from './pressureCalibrationScaffold';
 import {
   type PressureWindowEndResult,
   type StructurePressureEventSnapshot
 } from './structurePressureEventTracker';
-
-type TierValues = Record<StructurePressureTier, number>;
+import { type TierValues } from './sharedPressureTypes';
 
 export type StructuralThreatStage =
   | 'stable'
@@ -133,8 +134,8 @@ const partialProgressDecayPerSecond = 0.018;
 const reliefDecayPerSecond = 0.064;
 const escalationDecayPerSecond = 0.036;
 
-const stageScalarMin = 0.95;
-const stageScalarMax = 1.08;
+const { scalarMin: stageScalarMin, scalarMax: stageScalarMax } =
+  gameplayTuningConfig.calibrationScalars;
 
 export const createStructureResolutionMemory = (): StructureResolutionMemory => {
   const stateByTier: Record<StructurePressureTier, TierRuntimeState> = {
@@ -466,6 +467,3 @@ const cloneTierState = (state: TierRuntimeState): StructureResolutionTierState =
     ...state.calibration
   }
 });
-
-const clamp = (value: number, min: number, max: number): number =>
-  Math.max(min, Math.min(max, value));

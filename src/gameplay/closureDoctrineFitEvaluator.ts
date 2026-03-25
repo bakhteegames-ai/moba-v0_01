@@ -2,6 +2,7 @@ import {
   type ClosurePacingSnapshot,
   type ClosurePacingState
 } from './closurePacingInterpreter';
+import { approach, clamp } from './calibrationUtils';
 import { type ClosurePacingWatchSnapshot } from './closurePacingWatch';
 import { gameplayTuningConfig } from './gameplayTuningConfig';
 
@@ -797,13 +798,3 @@ const riskToScalar = (risk: number): number =>
     closureDoctrineFitTuning.scalarClamp.max
   );
 
-const clamp = (value: number, min: number, max: number): number =>
-  Math.max(min, Math.min(max, value));
-
-const approach = (value: number, target: number, amount: number): number => {
-  if (value < target) {
-    return Math.min(target, value + amount);
-  }
-
-  return Math.max(target, value - amount);
-};

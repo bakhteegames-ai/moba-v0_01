@@ -1,4 +1,8 @@
 import {
+  clamp,
+  cloneSnapshot
+} from './calibrationUtils';
+import {
   type LanePressureSegment,
   type StructurePressureTier
 } from './pressureCalibrationScaffold';
@@ -195,21 +199,7 @@ export const createDefaultSharedPushReassertionSnapshot =
 
 export const cloneSharedPushReassertionSnapshot = (
   snapshot: SharedPushReassertionSnapshot
-): SharedPushReassertionSnapshot => ({
-  responderId: snapshot.responderId,
-  recoveryActive: snapshot.recoveryActive,
-  recoveryEligible: snapshot.recoveryEligible,
-  actionKind: snapshot.actionKind,
-  recoveryCooldownRemaining: snapshot.recoveryCooldownRemaining,
-  recoveryRemainingSeconds: snapshot.recoveryRemainingSeconds,
-  sourceSegment: snapshot.sourceSegment,
-  sourceTier: snapshot.sourceTier,
-  structureSuppressionRecovery: snapshot.structureSuppressionRecovery,
-  closureSuppressionRecovery: snapshot.closureSuppressionRecovery,
-  lastResolvedRecoveryAction: snapshot.lastResolvedRecoveryAction,
-  triggerReason: snapshot.triggerReason,
-  summary: snapshot.summary
-});
+): SharedPushReassertionSnapshot => cloneSnapshot(snapshot);
 
 const buildSnapshot = (
   recoveryActive: boolean,
@@ -263,6 +253,3 @@ const buildWaitingSummary = (
   !input.defenderResponse.responseActive
     ? 'Blue-side push reassertion is waiting for a live defender contest pulse.'
     : 'Blue-side push reassertion is waiting for enough remaining push support to answer the contest.';
-
-const clamp = (value: number, min: number, max: number): number =>
-  Math.max(min, Math.min(max, value));

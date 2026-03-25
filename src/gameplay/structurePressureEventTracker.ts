@@ -1,6 +1,5 @@
+import { clamp } from './calibrationUtils';
 import { type StructurePressureTier } from './pressureCalibrationScaffold';
-
-type TierValues = Record<StructurePressureTier, number>;
 
 export type PressureWindowEndResult =
   | 'stall'
@@ -582,6 +581,3 @@ const blendCalibration = (
       source.pressureDecayScalar * w + target.pressureDecayScalar * inv
   };
 };
-
-const clamp = (value: number, min: number, max: number): number =>
-  Math.max(min, Math.min(max, value));

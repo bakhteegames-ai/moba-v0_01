@@ -1,4 +1,8 @@
 import {
+  clamp,
+  cloneSnapshot
+} from './calibrationUtils';
+import {
   type HeadlessBridgeLaneConsequenceSnapshot
 } from './headlessBridgeConsequenceAdapter';
 import {
@@ -6,9 +10,7 @@ import {
   type StructurePressureTier
 } from './pressureCalibrationScaffold';
 import { gameplayTuningConfig } from './gameplayTuningConfig';
-
-type SegmentValues = Record<LanePressureSegment, number>;
-type TierValues = Record<StructurePressureTier, number>;
+import { type SegmentValues, type TierValues } from './sharedPressureTypes';
 
 export type SharedSiegeWindowTriggerReason =
   | 'none'
@@ -135,16 +137,7 @@ export const createDefaultSharedSiegeWindowSnapshot =
 
 export const cloneSharedSiegeWindowSnapshot = (
   snapshot: SharedSiegeWindowSnapshot
-): SharedSiegeWindowSnapshot => ({
-  siegeWindowActive: snapshot.siegeWindowActive,
-  siegeWindowRemainingSeconds: snapshot.siegeWindowRemainingSeconds,
-  sourceSegment: snapshot.sourceSegment,
-  sourceTier: snapshot.sourceTier,
-  triggerReason: snapshot.triggerReason,
-  pressureSupportLevel: snapshot.pressureSupportLevel,
-  occupancySupportLevel: snapshot.occupancySupportLevel,
-  summary: snapshot.summary
-});
+): SharedSiegeWindowSnapshot => cloneSnapshot(snapshot);
 
 const formatSegment = (segment: LanePressureSegment): string =>
   segment === 'outer-front'
@@ -159,6 +152,3 @@ const formatTier = (tier: StructurePressureTier): string =>
     : tier === 'inner'
       ? 'inner'
       : 'core';
-
-const clamp = (value: number, min: number, max: number): number =>
-  Math.max(min, Math.min(max, value));

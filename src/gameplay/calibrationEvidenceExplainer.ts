@@ -6,6 +6,7 @@ import {
   type CalibrationDigestComparisonVerdict
 } from './calibrationDigestComparison';
 import { type CalibrationDigestSummarySnapshot } from './calibrationDigestSummary';
+import { approach, clamp } from './calibrationUtils';
 import { type ClosureDoctrineFitSnapshot } from './closureDoctrineFitEvaluator';
 
 export type CalibrationEvidenceDriverId =
@@ -829,14 +830,3 @@ const cloneDriver = (
   shortLabel: driver.shortLabel,
   shortReason: driver.shortReason
 });
-
-const approach = (value: number, target: number, amount: number): number => {
-  if (value < target) {
-    return Math.min(target, value + amount);
-  }
-
-  return Math.max(target, value - amount);
-};
-
-const clamp = (value: number, min: number, max: number): number =>
-  Math.max(min, Math.min(max, value));

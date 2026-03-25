@@ -1,7 +1,9 @@
 import { type CalibrationRetuningDomain, type CalibrationRetuningSuggestionsSnapshot } from './calibrationRetuningSuggestions';
+import { clamp } from './calibrationUtils';
 import { type ClosureDoctrineFitSnapshot, type ClosureDoctrineFitVerdict } from './closureDoctrineFitEvaluator';
 import { type ClosurePacingSnapshot } from './closurePacingInterpreter';
 import { type ClosurePacingHealthState, type ClosurePacingWatchSnapshot } from './closurePacingWatch';
+import { gameplayTuningConfig } from './gameplayTuningConfig';
 
 type VerdictSecondsMap = Record<ClosureDoctrineFitVerdict, number>;
 type DomainUrgencyMap = Record<CalibrationRetuningDomain, number>;
@@ -111,8 +113,7 @@ const stickinessSummaryTypes: CalibrationDigestStickinessSummary[] = [
   'problematic'
 ];
 
-const scalarMin = 0.95;
-const scalarMax = 1.08;
+const { scalarMin, scalarMax } = gameplayTuningConfig.calibrationScalars;
 
 export const createCalibrationDigestSummaryModel =
   (): CalibrationDigestSummaryModel => {
@@ -469,6 +470,3 @@ const getDominantKey = <T extends string>(
 
 const normalizeQualityScalar = (scalar: number): number =>
   clamp((scalar - scalarMin) / Math.max(0.001, scalarMax - scalarMin), 0, 1);
-
-const clamp = (value: number, min: number, max: number): number =>
-  Math.max(min, Math.min(max, value));

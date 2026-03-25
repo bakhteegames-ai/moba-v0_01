@@ -215,7 +215,8 @@ export const presentationTuning = {
       moveIntoRange: 'Move Into Range',
       castNow: 'Cast Now',
       cooldownRecovering: 'Cooldown Recovering',
-      targetCleared: 'Target Cleared'
+      targetCleared: 'Target Cleared',
+      advanceToStructure: 'Advance to Structure'
     },
     lastCast: {
       none: 'No Cast Yet',

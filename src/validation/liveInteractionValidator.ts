@@ -17,6 +17,7 @@ import {
   type LanePressureSegment,
   type StructurePressureTier
 } from '../gameplay/pressureCalibrationScaffold';
+import { type StructureConversionInteractionRequest } from '../gameplay/prototypeLaneStateLoop';
 
 type LiveScenarioId =
   | 'outer-inner-live'
@@ -91,7 +92,8 @@ export interface LiveInteractionCalibrationOperatorControls {
 export interface LiveInteractionValidator {
   update(
     dt: number,
-    sharedLaneConsequence?: HeadlessBridgeLaneConsequenceSnapshot
+    sharedLaneConsequence?: HeadlessBridgeLaneConsequenceSnapshot,
+    structureInteractionRequest?: StructureConversionInteractionRequest | null
   ): void;
   getDebugState(): LiveInteractionDebugState;
   getCalibrationOperatorControls(): LiveInteractionCalibrationOperatorControls;
@@ -144,9 +146,13 @@ export const createLiveInteractionValidator = (): LiveInteractionValidator => {
   };
 
   return {
-    update(dt, sharedLaneConsequence) {
+    update(dt, sharedLaneConsequence, structureInteractionRequest) {
       elapsedSinceRefresh += dt;
-      signalProvider.update(dt, sharedLaneConsequence);
+      signalProvider.update(
+        dt,
+        sharedLaneConsequence,
+        structureInteractionRequest
+      );
       if (elapsedSinceRefresh < refreshIntervalSeconds) {
         return;
       }

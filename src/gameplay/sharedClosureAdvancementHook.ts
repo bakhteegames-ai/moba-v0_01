@@ -1,4 +1,8 @@
 import {
+  clamp,
+  cloneSnapshot
+} from './calibrationUtils';
+import {
   type LanePressureSegment,
   type StructurePressureTier
 } from './pressureCalibrationScaffold';
@@ -13,6 +17,7 @@ import { gameplayTuningConfig } from './gameplayTuningConfig';
 export type SharedClosureAdvancementTriggerReason =
   | 'none'
   | 'progressing'
+  | 'interaction-required'
   | 'support-too-low'
   | 'signal-expired'
   | 'anti-stall-readiness-raised';
@@ -39,6 +44,7 @@ export interface SharedClosureAdvancementHookInput {
   structureConversion: SharedStructureConversionSnapshot;
   laneClosure: LaneClosurePostureSnapshot;
   readinessSuppression?: number;
+  interactionUnlocked?: boolean;
 }
 
 export const advanceSharedClosureAdvancementSnapshot = (
@@ -73,10 +79,13 @@ export const advanceSharedClosureAdvancementSnapshot = (
     0,
     1
   );
-  const readinessEligible =
+  const readinessSignalEligible =
     (input.structureConversion.lastResolvedStructureStep !== 'none' ||
       structuralSignal >= tuning.minimumStructuralSignal) &&
     readinessLevel >= tuning.minimumReadinessLevel;
+  const interactionUnlocked = input.interactionUnlocked === true;
+  const interactionRequired = readinessSignalEligible && !interactionUnlocked;
+  const readinessEligible = readinessSignalEligible && interactionUnlocked;
 
   if (
     input.previous.sourceTier === sourceTier &&
@@ -165,7 +174,9 @@ export const advanceSharedClosureAdvancementSnapshot = (
 
   const decayedValue = decayValue(input.previous.closureAdvancementValue, dt);
   const terminalReason: SharedClosureAdvancementTriggerReason =
-    decayedValue > 0 || input.previous.lastResolvedClosureStep !== 'none'
+    interactionRequired
+      ? 'interaction-required'
+      : decayedValue > 0 || input.previous.lastResolvedClosureStep !== 'none'
       ? 'signal-expired'
       : 'support-too-low';
   return buildSnapshot(
@@ -178,6 +189,8 @@ export const advanceSharedClosureAdvancementSnapshot = (
     terminalReason,
     decayedValue > 0
       ? 'Bounded combat-earned closure readiness is decaying.'
+      : interactionRequired
+        ? 'Combat-earned structure progress is waiting for a bounded closure interaction commit.'
       : input.previous.lastResolvedClosureStep !== 'none'
         ? 'Combat-earned anti-stall readiness remains the last resolved closure step.'
         : 'Shared structure progress is not yet strong enough to raise anti-stall readiness.',
@@ -201,17 +214,7 @@ export const createDefaultSharedClosureAdvancementSnapshot =
 
 export const cloneSharedClosureAdvancementSnapshot = (
   snapshot: SharedClosureAdvancementSnapshot
-): SharedClosureAdvancementSnapshot => ({
-  closureAdvancementActive: snapshot.closureAdvancementActive,
-  closureAdvancementValue: snapshot.closureAdvancementValue,
-  readinessLevel: snapshot.readinessLevel,
-  readinessEligible: snapshot.readinessEligible,
-  sourceSegment: snapshot.sourceSegment,
-  sourceTier: snapshot.sourceTier,
-  triggerReason: snapshot.triggerReason,
-  summary: snapshot.summary,
-  lastResolvedClosureStep: snapshot.lastResolvedClosureStep
-});
+): SharedClosureAdvancementSnapshot => cloneSnapshot(snapshot);
 
 const buildSnapshot = (
   closureAdvancementActive: boolean,
@@ -254,6 +257,3 @@ const decayValue = (value: number, dt: number): number =>
     0,
     gameplayTuningConfig.sharedClosureAdvancement.valueThreshold
   );
-
-const clamp = (value: number, min: number, max: number): number =>
-  Math.max(min, Math.min(max, value));

@@ -3,13 +3,17 @@ import {
   type HeadlessCombatLaneEventKind
 } from '../combat/headlessCombatLaneBridge';
 import {
+  clamp,
+  cloneSnapshot,
+  createZeroSegmentValues,
+  createZeroTierValues
+} from './calibrationUtils';
+import { gameplayTuningConfig } from './gameplayTuningConfig';
+import {
   type LanePressureSegment,
   type StructurePressureTier
 } from './pressureCalibrationScaffold';
-import { gameplayTuningConfig } from './gameplayTuningConfig';
-
-type SegmentValues = Record<LanePressureSegment, number>;
-type TierValues = Record<StructurePressureTier, number>;
+import { type SegmentValues, type TierValues } from './sharedPressureTypes';
 
 export interface HeadlessBridgeLaneConsequenceSnapshot {
   pressureDelta: number;
@@ -118,28 +122,4 @@ export const createDefaultHeadlessBridgeLaneConsequenceSnapshot =
 
 export const cloneHeadlessBridgeLaneConsequenceSnapshot = (
   snapshot: HeadlessBridgeLaneConsequenceSnapshot
-): HeadlessBridgeLaneConsequenceSnapshot => ({
-  pressureDelta: snapshot.pressureDelta,
-  occupancyAdvantage: snapshot.occupancyAdvantage,
-  opportunityActive: snapshot.opportunityActive,
-  opportunityRemainingSeconds: snapshot.opportunityRemainingSeconds,
-  affectedSegment: snapshot.affectedSegment,
-  affectedTier: snapshot.affectedTier,
-  lastBridgeOutcomeKind: snapshot.lastBridgeOutcomeKind,
-  lastBridgeOutcomeSummary: snapshot.lastBridgeOutcomeSummary
-});
-
-const createZeroSegmentValues = (): SegmentValues => ({
-  'outer-front': 0,
-  'inner-siege': 0,
-  'core-approach': 0
-});
-
-const createZeroTierValues = (): TierValues => ({
-  outer: 0,
-  inner: 0,
-  core: 0
-});
-
-const clamp = (value: number, min: number, max: number): number =>
-  Math.max(min, Math.min(max, value));
+): HeadlessBridgeLaneConsequenceSnapshot => cloneSnapshot(snapshot);

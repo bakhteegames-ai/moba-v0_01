@@ -1,3 +1,4 @@
+import { clamp } from './calibrationUtils';
 import { type CalibrationDigestComparisonSnapshot } from './calibrationDigestComparison';
 import { type CalibrationEvidenceExplainerSnapshot } from './calibrationEvidenceExplainer';
 import {
@@ -565,6 +566,3 @@ const formatDomainReason = (domain: CalibrationRetuningDomain): string =>
         : domain === 'anti-stall-dwell'
           ? 'anti-stall dwell'
           : 'calibration';
-
-const clamp = (value: number, min: number, max: number): number =>
-  Math.max(min, Math.min(max, value));

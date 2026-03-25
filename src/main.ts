@@ -43,7 +43,11 @@ const wavePressureValidator = createWavePressureValidator(registry);
 const runFrame = (dt: number): void => {
   playerController.update(dt);
   const headlessCombatSnapshot = headlessCombat.getSnapshot();
-  liveInteractionValidator.update(dt, headlessCombatSnapshot.sharedLaneConsequence);
+  liveInteractionValidator.update(
+    dt,
+    headlessCombatSnapshot.sharedLaneConsequence,
+    headlessCombatSnapshot.lastStructureInteractionRequest
+  );
   tempoHarness.update(dt);
   wavePressureValidator.update(dt);
   const liveInteractionSnapshot = liveInteractionValidator.getDebugState();

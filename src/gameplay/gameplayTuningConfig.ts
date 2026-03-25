@@ -151,6 +151,10 @@ export const gameplayTuningConfig = {
     firedStructureRecovery: 0.08,
     firedClosureRecovery: 0.13
   },
+  calibrationScalars: {
+    scalarMin: 0.95,
+    scalarMax: 1.08
+  },
   closureDoctrineFitEvaluator: {
     minimumCycleSeconds: 6,
     scalarClamp: {

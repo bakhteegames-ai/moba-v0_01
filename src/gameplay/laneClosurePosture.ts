@@ -2,14 +2,14 @@ import {
   type LanePressureSegment,
   type StructurePressureTier
 } from './pressureCalibrationScaffold';
+import { approach, clamp } from './calibrationUtils';
+import { gameplayTuningConfig } from './gameplayTuningConfig';
+import { type SegmentValues, type TierValues } from './sharedPressureTypes';
 import { type PrototypeStructureContactState } from './prototypeLaneOccupancyProducer';
 import {
   type StructuralThreatStage,
   type StructureResolutionTierState
 } from './structureResolutionMemory';
-
-type TierValues = Record<StructurePressureTier, number>;
-type SegmentValues = Record<LanePressureSegment, number>;
 
 export type LaneClosurePosture =
   | 'stable'
@@ -128,8 +128,7 @@ const postureCalibrationBase: Record<LaneClosurePosture, Omit<LaneClosureCalibra
   }
 };
 
-const scalarMin = 0.95;
-const scalarMax = 1.08;
+const { scalarMin, scalarMax } = gameplayTuningConfig.calibrationScalars;
 
 export const createLaneClosurePostureModel = (): LaneClosurePostureModel => {
   const state: LaneClosureRuntimeState = {
@@ -385,14 +384,3 @@ const weightedSegmentValue = (
     0,
     1
   );
-
-const approach = (value: number, target: number, amount: number): number => {
-  if (value < target) {
-    return Math.min(target, value + amount);
-  }
-
-  return Math.max(target, value - amount);
-};
-
-const clamp = (value: number, min: number, max: number): number =>
-  Math.max(min, Math.min(max, value));

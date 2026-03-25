@@ -8,7 +8,8 @@ import {
 import {
   createPrototypeLaneStateLoop,
   type PrototypeLaneOutcomeSample,
-  type PrototypeLaneStateSnapshot
+  type PrototypeLaneStateSnapshot,
+  type StructureConversionInteractionRequest
 } from './prototypeLaneStateLoop';
 import {
   type BoundedClosureState,
@@ -499,7 +500,8 @@ export interface LivePrototypeSignalEventContext {
 export interface LivePrototypeSignalProvider {
   update(
     dt: number,
-    sharedLaneConsequence?: HeadlessBridgeLaneConsequenceSnapshot
+    sharedLaneConsequence?: HeadlessBridgeLaneConsequenceSnapshot,
+    structureInteractionRequest?: StructureConversionInteractionRequest | null
   ): void;
   getGlobalSignals(): LivePrototypeSignals;
   getScenarioSignals(
@@ -542,9 +544,14 @@ export const createLivePrototypeSignalProvider =
     };
 
     return {
-      update(dt, sharedLaneConsequence) {
+      update(dt, sharedLaneConsequence, structureInteractionRequest) {
         if (sharedLaneConsequence) {
           laneStateLoop.setSharedLaneConsequence(sharedLaneConsequence);
+        }
+        if (structureInteractionRequest) {
+          laneStateLoop.submitStructureConversionInteraction(
+            structureInteractionRequest
+          );
         }
         laneStateLoop.update(dt);
       },

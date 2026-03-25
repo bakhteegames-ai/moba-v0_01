@@ -1,3 +1,4 @@
+import { clamp } from './calibrationUtils';
 import {
   type ClosureDoctrineConfidence,
   type ClosureDoctrineFitSnapshot
@@ -397,6 +398,3 @@ const average = (values: number[]): number =>
   values.length > 0
     ? values.reduce((sum, value) => sum + value, 0) / values.length
     : 0;
-
-const clamp = (value: number, min: number, max: number): number =>
-  Math.max(min, Math.min(max, value));

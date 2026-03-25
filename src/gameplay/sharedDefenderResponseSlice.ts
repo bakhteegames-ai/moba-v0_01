@@ -1,4 +1,8 @@
 import {
+  clamp,
+  cloneSnapshot
+} from './calibrationUtils';
+import {
   type LanePressureSegment,
   type StructurePressureTier
 } from './pressureCalibrationScaffold';
@@ -187,21 +191,7 @@ export const createDefaultSharedDefenderResponseSnapshot =
 
 export const cloneSharedDefenderResponseSnapshot = (
   snapshot: SharedDefenderResponseSnapshot
-): SharedDefenderResponseSnapshot => ({
-  defenderId: snapshot.defenderId,
-  responseActive: snapshot.responseActive,
-  responseEligible: snapshot.responseEligible,
-  actionKind: snapshot.actionKind,
-  responseCooldownRemaining: snapshot.responseCooldownRemaining,
-  responseRemainingSeconds: snapshot.responseRemainingSeconds,
-  sourceSegment: snapshot.sourceSegment,
-  sourceTier: snapshot.sourceTier,
-  structureConversionSuppression: snapshot.structureConversionSuppression,
-  closureAdvancementSuppression: snapshot.closureAdvancementSuppression,
-  lastResolvedResponseAction: snapshot.lastResolvedResponseAction,
-  triggerReason: snapshot.triggerReason,
-  summary: snapshot.summary
-});
+): SharedDefenderResponseSnapshot => cloneSnapshot(snapshot);
 
 const buildSnapshot = (
   responseActive: boolean,
@@ -261,6 +251,3 @@ const buildWaitingSummary = (
           gameplayTuningConfig.sharedDefenderResponse.minimumConversionPressure
       ? 'Red-side defender is holding the contest pulse until the trigger rule is satisfied.'
       : 'Red-side defender is waiting for blue structure conversion to become contestable.';
-
-const clamp = (value: number, min: number, max: number): number =>
-  Math.max(min, Math.min(max, value));

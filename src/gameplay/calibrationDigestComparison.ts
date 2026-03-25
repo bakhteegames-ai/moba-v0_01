@@ -1,4 +1,5 @@
 import { type CalibrationRetuningDomain } from './calibrationRetuningSuggestions';
+import { clamp, cloneSnapshot } from './calibrationUtils';
 import {
   type CalibrationDigestPriority,
   type CalibrationDigestResetSummary,
@@ -64,10 +65,10 @@ export const createCalibrationDigestComparisonModel =
 
     return {
       update(currentDigest) {
-        state.current = cloneDigestSnapshot(currentDigest);
+        state.current = cloneSnapshot(currentDigest);
       },
       captureCurrentCalibrationBaseline() {
-        state.baseline = cloneDigestSnapshot(state.current);
+        state.baseline = cloneSnapshot(state.current);
       },
       clearCalibrationBaseline() {
         state.baseline = null;
@@ -292,24 +293,6 @@ const createEmptyDigestSnapshot = (): CalibrationDigestSummarySnapshot => ({
   averageRetuningPressure: 0
 });
 
-const cloneDigestSnapshot = (
-  snapshot: CalibrationDigestSummarySnapshot
-): CalibrationDigestSummarySnapshot => ({
-  windowDurationSeconds: snapshot.windowDurationSeconds,
-  sampleCount: snapshot.sampleCount,
-  dominantDriftOverRun: snapshot.dominantDriftOverRun,
-  dominantCalibrationDomainConsensus: snapshot.dominantCalibrationDomainConsensus,
-  overallTuningPriority: snapshot.overallTuningPriority,
-  escalationTimingSummary: snapshot.escalationTimingSummary,
-  resetQualitySummary: snapshot.resetQualitySummary,
-  closureStickinessSummary: snapshot.closureStickinessSummary,
-  recommendationStabilityScalar: snapshot.recommendationStabilityScalar,
-  confidenceBlend: snapshot.confidenceBlend,
-  driftConsensusLevel: snapshot.driftConsensusLevel,
-  domainConsensusLevel: snapshot.domainConsensusLevel,
-  averageRetuningPressure: snapshot.averageRetuningPressure
-});
-
 const driftQuality = (verdict: ClosureDoctrineFitVerdict): number =>
   verdict === 'doctrine-fit' ? 2 : 0;
 
@@ -348,6 +331,3 @@ const stickinessQuality = (summary: CalibrationDigestStickinessSummary): number 
       : summary === 'limited-signal'
         ? 0
         : -1;
-
-const clamp = (value: number, min: number, max: number): number =>
-  Math.max(min, Math.min(max, value));

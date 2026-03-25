@@ -1,11 +1,10 @@
 import { layoutConfig } from '../config/layout';
+import { clamp } from './calibrationUtils';
 import {
   type LanePressureSegment,
   type StructurePressureTier
 } from './pressureCalibrationScaffold';
-
-type SegmentValues = Record<LanePressureSegment, number>;
-type TierValues = Record<StructurePressureTier, number>;
+import { type SegmentValues, type TierValues } from './sharedPressureTypes';
 
 interface PrototypeWaveInstance {
   id: number;
@@ -447,6 +446,3 @@ const makeSegmentValues = (value: number): SegmentValues => ({
   'inner-siege': value,
   'core-approach': value
 });
-
-const clamp = (value: number, min: number, max: number): number =>
-  Math.max(min, Math.min(max, value));

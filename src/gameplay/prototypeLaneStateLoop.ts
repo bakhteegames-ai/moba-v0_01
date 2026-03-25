@@ -116,10 +116,10 @@ import {
   createDefaultSharedPushReassertionSnapshot,
   type SharedPushReassertionSnapshot
 } from './sharedPushReassertionSlice';
+import { approach, clamp } from './calibrationUtils';
 import { gameplayTuningConfig } from './gameplayTuningConfig';
+import { type SegmentValues, type TierValues } from './sharedPressureTypes';
 
-type SegmentValues = Record<LanePressureSegment, number>;
-type TierValues = Record<StructurePressureTier, number>;
 type TierStates = Record<StructurePressureTier, DefenderHoldState>;
 type SegmentCounts = Record<LanePressureSegment, number>;
 type ContactByTier = Record<StructurePressureTier, PrototypeStructureContactState>;
@@ -128,6 +128,23 @@ type TierPressureEvents = Record<StructurePressureTier, StructurePressureTierEve
 type TierEventCalibration = Record<StructurePressureTier, StructurePressureCalibrationContext>;
 type TierResolutionState = Record<StructurePressureTier, StructureResolutionTierState>;
 type TierResolutionCalibration = Record<StructurePressureTier, StructureResolutionCalibrationContext>;
+type StructureInteractionGateState = {
+  unlocked: boolean;
+  sourceSegment: LanePressureSegment;
+  sourceTier: StructurePressureTier;
+};
+type ClosureInteractionGateState = {
+  unlocked: boolean;
+  sourceSegment: LanePressureSegment;
+  sourceTier: StructurePressureTier;
+};
+type StructureInteractionAnchor = {
+  position: {
+    x: number;
+    z: number;
+  };
+  interactionRange: number;
+};
 
 export interface PrototypeLaneStateSnapshot {
   elapsedSeconds: number;
@@ -184,10 +201,22 @@ export interface PrototypeLaneOutcomeSample {
   remainingWindowSeconds: number;
 }
 
+export interface StructureConversionInteractionRequest {
+  sequence: number;
+  playerAlive: boolean;
+  playerPosition: {
+    x: number;
+    z: number;
+  };
+}
+
 export interface PrototypeLaneStateLoop {
   update(dt: number): void;
   setSharedLaneConsequence(
     consequence: HeadlessBridgeLaneConsequenceSnapshot
+  ): void;
+  submitStructureConversionInteraction(
+    request: StructureConversionInteractionRequest
   ): void;
   getSnapshot(): PrototypeLaneStateSnapshot;
   recordOutcome(sample: PrototypeLaneOutcomeSample): void;
@@ -235,6 +264,15 @@ const segmentReferenceSeconds: SegmentValues = {
   'core-approach': 10 / Math.max(0.5, layoutConfig.player.moveSpeed)
 };
 
+const structureInteractionAnchorByTier: Record<
+  StructurePressureTier,
+  StructureInteractionAnchor
+> = {
+  outer: createStructureInteractionAnchor('red-outer-tower-blocker'),
+  inner: createStructureInteractionAnchor('red-inner-tower-blocker'),
+  core: createStructureInteractionAnchor('red-core-blocker')
+};
+
 export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
   const occupancyProducer = createPrototypeLaneOccupancyProducer();
   const structureEventTracker = createStructurePressureEventTracker();
@@ -263,6 +301,19 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
     createDefaultSharedDefenderResponseSnapshot();
   let sharedPushReassertion =
     createDefaultSharedPushReassertionSnapshot();
+  let latestStructureInteractionRequest: StructureConversionInteractionRequest | null =
+    null;
+  let processedStructureInteractionSequence = 0;
+  const structureInteractionGate: StructureInteractionGateState = {
+    unlocked: false,
+    sourceSegment: 'outer-front',
+    sourceTier: 'outer'
+  };
+  const closureInteractionGate: ClosureInteractionGateState = {
+    unlocked: false,
+    sourceSegment: 'outer-front',
+    sourceTier: 'outer'
+  };
   const memory: LaneStateMemory = {
     elapsedSeconds: 0,
     carryoverPressureState: 1,
@@ -357,6 +408,7 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
         structurePressureByTier: structurePressureEstimate,
         segmentOccupancyPresence: occupancy.segmentOccupancyPresence
       });
+      syncStructureInteractionGate(structureInteractionGate, sharedSiegeWindow);
       structureEventTracker.update(
         dt,
         memory.elapsedSeconds,
@@ -408,6 +460,26 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
         sharedDefenderResponse,
         sharedPushReassertion
       );
+      const hasUnprocessedStructureInteraction =
+        latestStructureInteractionRequest !== null &&
+        latestStructureInteractionRequest.sequence >
+          processedStructureInteractionSequence;
+      let interactionRequestHandled = false;
+      if (
+        hasUnprocessedStructureInteraction &&
+        latestStructureInteractionRequest &&
+        !structureInteractionGate.unlocked
+      ) {
+        if (
+          isValidStructureInteractionRequest(
+            latestStructureInteractionRequest,
+            sharedSiegeWindow
+          )
+        ) {
+          structureInteractionGate.unlocked = true;
+          interactionRequestHandled = true;
+        }
+      }
       sharedStructureConversion = advanceSharedStructureConversionSnapshot({
         dt,
         previous: sharedStructureConversion,
@@ -415,14 +487,40 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
         structurePressureByTier: structurePressureEstimate,
         eventByTier: eventSnapshot.byTier,
         resolutionByTier: resolutionSnapshot.byTier,
-        progressSuppression: effectiveStructureSuppression
+        progressSuppression: effectiveStructureSuppression,
+        interactionUnlocked: structureInteractionGate.unlocked
       });
+      syncClosureInteractionGate(
+        closureInteractionGate,
+        sharedStructureConversion
+      );
+      if (
+        hasUnprocessedStructureInteraction &&
+        latestStructureInteractionRequest &&
+        !interactionRequestHandled &&
+        !closureInteractionGate.unlocked &&
+        isValidClosureInteractionRequest(
+          latestStructureInteractionRequest,
+          sharedStructureConversion
+        )
+      ) {
+        closureInteractionGate.unlocked = true;
+        interactionRequestHandled = true;
+      }
+      if (
+        hasUnprocessedStructureInteraction &&
+        latestStructureInteractionRequest
+      ) {
+        processedStructureInteractionSequence =
+          latestStructureInteractionRequest.sequence;
+      }
       sharedClosureAdvancement = advanceSharedClosureAdvancementSnapshot({
         dt,
         previous: sharedClosureAdvancement,
         structureConversion: sharedStructureConversion,
         laneClosure: laneClosureSnapshot,
-        readinessSuppression: effectiveClosureSuppression
+        readinessSuppression: effectiveClosureSuppression,
+        interactionUnlocked: closureInteractionGate.unlocked
       });
       const closureCarryoverSupport = deriveClosureCarryoverSupport(
         memory.carryoverPressureState,
@@ -517,6 +615,16 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
     setSharedLaneConsequence(consequence) {
       sharedLaneConsequence =
         cloneHeadlessBridgeLaneConsequenceSnapshot(consequence);
+    },
+    submitStructureConversionInteraction(request) {
+      latestStructureInteractionRequest = {
+        sequence: request.sequence,
+        playerAlive: request.playerAlive,
+        playerPosition: {
+          x: request.playerPosition.x,
+          z: request.playerPosition.z
+        }
+      };
     },
     getSnapshot() {
       const occupancy = occupancyProducer.getSnapshot();
@@ -1112,9 +1220,114 @@ const deriveEffectiveContestSuppression = (
     sharedDefenderResponse.closureAdvancementSuppression -
       sharedPushReassertion.closureSuppressionRecovery,
     gameplayTuningConfig.sharedClosureAdvancement.readinessSuppressionClamp.min,
-    gameplayTuningConfig.sharedClosureAdvancement.readinessSuppressionClamp.max
+        gameplayTuningConfig.sharedClosureAdvancement.readinessSuppressionClamp.max
   )
 });
+
+const syncStructureInteractionGate = (
+  gate: StructureInteractionGateState,
+  sharedSiegeWindow: SharedSiegeWindowSnapshot
+): void => {
+  if (!sharedSiegeWindow.siegeWindowActive) {
+    gate.unlocked = false;
+    gate.sourceSegment = sharedSiegeWindow.sourceSegment;
+    gate.sourceTier = sharedSiegeWindow.sourceTier;
+    return;
+  }
+
+  if (
+    gate.sourceSegment !== sharedSiegeWindow.sourceSegment ||
+    gate.sourceTier !== sharedSiegeWindow.sourceTier
+  ) {
+    gate.unlocked = false;
+    gate.sourceSegment = sharedSiegeWindow.sourceSegment;
+    gate.sourceTier = sharedSiegeWindow.sourceTier;
+  }
+};
+
+const syncClosureInteractionGate = (
+  gate: ClosureInteractionGateState,
+  structureConversion: SharedStructureConversionSnapshot
+): void => {
+  const activeClosureSource =
+    structureConversion.lastResolvedStructureStep !== 'none' &&
+    structureConversion.triggerReason !== 'window-expired';
+
+  if (!activeClosureSource) {
+    gate.unlocked = false;
+    gate.sourceSegment = structureConversion.sourceSegment;
+    gate.sourceTier = structureConversion.sourceTier;
+    return;
+  }
+
+  if (
+    gate.sourceSegment !== structureConversion.sourceSegment ||
+    gate.sourceTier !== structureConversion.sourceTier
+  ) {
+    gate.unlocked = false;
+    gate.sourceSegment = structureConversion.sourceSegment;
+    gate.sourceTier = structureConversion.sourceTier;
+  }
+};
+
+const isValidStructureInteractionRequest = (
+  request: StructureConversionInteractionRequest,
+  sharedSiegeWindow: SharedSiegeWindowSnapshot
+): boolean => {
+  if (!request.playerAlive || !sharedSiegeWindow.siegeWindowActive) {
+    return false;
+  }
+
+  const anchor = structureInteractionAnchorByTier[sharedSiegeWindow.sourceTier];
+  const distanceToAnchor = Math.hypot(
+    request.playerPosition.x - anchor.position.x,
+    request.playerPosition.z - anchor.position.z
+  );
+
+  return distanceToAnchor <= anchor.interactionRange;
+};
+
+const isValidClosureInteractionRequest = (
+  request: StructureConversionInteractionRequest,
+  structureConversion: SharedStructureConversionSnapshot
+): boolean => {
+  const activeClosureSource =
+    structureConversion.lastResolvedStructureStep !== 'none' &&
+    structureConversion.triggerReason !== 'window-expired';
+  if (!request.playerAlive || !activeClosureSource) {
+    return false;
+  }
+
+  const anchor = structureInteractionAnchorByTier[structureConversion.sourceTier];
+  const distanceToAnchor = Math.hypot(
+    request.playerPosition.x - anchor.position.x,
+    request.playerPosition.z - anchor.position.z
+  );
+
+  return distanceToAnchor <= anchor.interactionRange;
+};
+
+function createStructureInteractionAnchor(
+  blockerId: string
+): StructureInteractionAnchor {
+  const blocker = layoutConfig.blockers.find((entry) => entry.id === blockerId);
+  if (!blocker) {
+    throw new Error(
+      `Missing structure interaction blocker "${blockerId}" in layout config.`
+    );
+  }
+
+  return {
+    position: {
+      x: blocker.center.x,
+      z: blocker.center.y
+    },
+    interactionRange:
+      Math.max(blocker.size.width, blocker.size.depth) * 0.5 +
+      layoutConfig.player.radius +
+      Math.max(0.4, layoutConfig.player.radius * 0.5)
+  };
+}
 
 const deriveClosureCarryoverSupport = (
   carryoverPressureState: number,
@@ -1657,14 +1870,3 @@ const deriveDefenderState = (
 
   return 'delay';
 };
-
-const approach = (value: number, target: number, amount: number): number => {
-  if (value < target) {
-    return Math.min(target, value + amount);
-  }
-
-  return Math.max(target, value - amount);
-};
-
-const clamp = (value: number, min: number, max: number): number =>
-  Math.max(min, Math.min(max, value));

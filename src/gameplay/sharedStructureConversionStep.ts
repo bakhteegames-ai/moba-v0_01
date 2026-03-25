@@ -1,4 +1,8 @@
 import {
+  clamp,
+  cloneSnapshot
+} from './calibrationUtils';
+import {
   type LanePressureSegment,
   type StructurePressureTier
 } from './pressureCalibrationScaffold';
@@ -12,14 +16,15 @@ import {
   type SharedSiegeWindowSnapshot
 } from './sharedSiegeWindowConversion';
 import { gameplayTuningConfig } from './gameplayTuningConfig';
+import { type TierValues } from './sharedPressureTypes';
 
-type TierValues = Record<StructurePressureTier, number>;
 type TierEvents = Record<StructurePressureTier, StructurePressureTierEventState>;
 type TierResolutionStates = Record<StructurePressureTier, StructureResolutionTierState>;
 
 export type SharedStructureConversionTriggerReason =
   | 'none'
   | 'progressing'
+  | 'interaction-required'
   | 'support-too-low'
   | 'window-expired'
   | 'structure-step-earned';
@@ -50,6 +55,7 @@ export interface SharedStructureConversionStepInput {
   eventByTier: TierEvents;
   resolutionByTier: TierResolutionStates;
   progressSuppression?: number;
+  interactionUnlocked?: boolean;
 }
 
 export const advanceSharedStructureConversionSnapshot = (
@@ -80,12 +86,17 @@ export const advanceSharedStructureConversionSnapshot = (
     tuning.progressSuppressionClamp.min,
     tuning.progressSuppressionClamp.max
   );
-  const conversionEligible =
+  const interactionUnlocked = input.interactionUnlocked === true;
+  const boundedEligibility =
     input.sharedSiegeWindow.siegeWindowActive &&
     supportSufficient &&
     (structurePressure >= tuning.minimumStructurePressure ||
       eventEligible ||
       threatStageEligible);
+  const interactionRequired =
+    boundedEligibility &&
+    !interactionUnlocked;
+  const conversionEligible = boundedEligibility && interactionUnlocked;
 
   if (
     input.previous.sourceTier === sourceTier &&
@@ -173,8 +184,17 @@ export const advanceSharedStructureConversionSnapshot = (
   }
 
   const decayedProgress = decayProgress(input.previous.conversionProgress, dt);
+  const shouldReportInactiveReason =
+    decayedProgress > 0 ||
+    input.previous.lastResolvedStructureStep !== 'none' ||
+    interactionRequired ||
+    (input.sharedSiegeWindow.siegeWindowActive && !supportSufficient);
   const triggerReason: SharedStructureConversionTriggerReason =
-    input.sharedSiegeWindow.siegeWindowActive ? 'support-too-low' : 'window-expired';
+    interactionRequired
+      ? 'interaction-required'
+      : input.sharedSiegeWindow.siegeWindowActive
+        ? 'support-too-low'
+        : 'window-expired';
 
   return buildSnapshot(
       false,
@@ -182,11 +202,11 @@ export const advanceSharedStructureConversionSnapshot = (
       false,
     sourceSegment,
     sourceTier,
-    decayedProgress > 0 || input.previous.lastResolvedStructureStep !== 'none'
-      ? triggerReason
-      : 'none',
+    shouldReportInactiveReason ? triggerReason : 'none',
     decayedProgress > 0
       ? `Bounded ${formatTier(sourceTier)} structure conversion progress is decaying.`
+      : interactionRequired
+        ? `Combat-earned ${formatTier(sourceTier)} siege pressure is waiting for a bounded structure interaction commit.`
       : input.sharedSiegeWindow.siegeWindowActive
         ? `${formatTier(sourceTier)} siege support is still too weak for bounded structure conversion.`
         : input.previous.lastResolvedStructureStep !== 'none'
@@ -211,17 +231,7 @@ export const createDefaultSharedStructureConversionSnapshot =
 
 export const cloneSharedStructureConversionSnapshot = (
   snapshot: SharedStructureConversionSnapshot
-): SharedStructureConversionSnapshot => ({
-  conversionActive: snapshot.conversionActive,
-  conversionProgress: snapshot.conversionProgress,
-  conversionThreshold: snapshot.conversionThreshold,
-  conversionEligible: snapshot.conversionEligible,
-  sourceSegment: snapshot.sourceSegment,
-  sourceTier: snapshot.sourceTier,
-  triggerReason: snapshot.triggerReason,
-  summary: snapshot.summary,
-  lastResolvedStructureStep: snapshot.lastResolvedStructureStep
-});
+): SharedStructureConversionSnapshot => cloneSnapshot(snapshot);
 
 const buildSnapshot = (
   conversionActive: boolean,
@@ -275,6 +285,3 @@ const formatTier = (tier: StructurePressureTier): string =>
     : tier === 'inner'
       ? 'Inner'
       : 'Core';
-
-const clamp = (value: number, min: number, max: number): number =>
-  Math.max(min, Math.min(max, value));

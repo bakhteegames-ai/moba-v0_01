@@ -1,3 +1,5 @@
+import { cloneSnapshot } from './calibrationUtils';
+
 export type CalibrationOperatorActionId =
   | 'none'
   | 'reset-calibration-digest'
@@ -85,14 +87,4 @@ const createDefaultSnapshot = (): CalibrationOperatorControlsSnapshot => ({
   lastActionRuntimeSeconds: null,
   actionFeedbackText: '',
   actionFeedbackSeverity: 'neutral'
-});
-
-const cloneSnapshot = (
-  snapshot: CalibrationOperatorControlsSnapshot
-): CalibrationOperatorControlsSnapshot => ({
-  lastActionId: snapshot.lastActionId,
-  lastActionLabel: snapshot.lastActionLabel,
-  lastActionRuntimeSeconds: snapshot.lastActionRuntimeSeconds,
-  actionFeedbackText: snapshot.actionFeedbackText,
-  actionFeedbackSeverity: snapshot.actionFeedbackSeverity
 });

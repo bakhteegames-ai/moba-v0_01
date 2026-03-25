@@ -132,7 +132,8 @@ export const createPlayerFacingHud = (): PlayerFacingHud => {
       const combatState = deriveAggregatedCombatState(input.combat);
       const combatHudStatuses = deriveAggregatedCombatHudStatuses(
         combatState,
-        input.combat.player.basicAbilityCooldownRemaining
+        input.combat.player.basicAbilityCooldownRemaining,
+        input.signals.sharedSiegeWindow
       );
       updateChip(
         combatChip,
@@ -367,7 +368,8 @@ const deriveAggregatedCombatState = (
 
 const deriveAggregatedCombatHudStatuses = (
   state: AggregatedCombatState,
-  cooldownRemaining: number
+  cooldownRemaining: number,
+  siegeWindow: HudSignals['sharedSiegeWindow']
 ): AggregatedCombatHudStatuses =>
   state === 'dead-actor'
     ? {
@@ -380,16 +382,21 @@ const deriveAggregatedCombatHudStatuses = (
           'blocked'
         )
       }
-    : state === 'cleared'
-      ? {
+      : state === 'cleared'
+        ? {
           combat: buildStaticStatus(
             presentationTuning.hud.text.cleared,
             'resolved'
           ),
-          next: buildStaticStatus(
-            presentationTuning.hud.nextStep.targetCleared,
-            'resolved'
-          )
+          next: siegeWindow.siegeWindowActive
+            ? buildStaticStatus(
+                presentationTuning.hud.nextStep.advanceToStructure,
+                'active'
+              )
+            : buildStaticStatus(
+                presentationTuning.hud.nextStep.targetCleared,
+                'resolved'
+              )
         }
       : state === 'out-of-range'
         ? {

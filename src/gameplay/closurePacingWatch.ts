@@ -1,4 +1,6 @@
 import { type ClosurePacingSnapshot, type ClosurePacingState } from './closurePacingInterpreter';
+import { approach, clamp } from './calibrationUtils';
+import { gameplayTuningConfig } from './gameplayTuningConfig';
 import { type LaneClosurePostureSnapshot } from './laneClosurePosture';
 import { type StructurePressureTier } from './pressureCalibrationScaffold';
 import { type StructureResolutionTierState } from './structureResolutionMemory';
@@ -86,8 +88,7 @@ const pacingStates: ClosurePacingState[] = [
   'defender-reset-window'
 ];
 
-const scalarMin = 0.95;
-const scalarMax = 1.08;
+const { scalarMin, scalarMax } = gameplayTuningConfig.calibrationScalars;
 
 export const createClosurePacingWatch = (): ClosurePacingWatch => {
   const state: RuntimeState = {
@@ -514,14 +515,3 @@ const createStateValueMap = (value: number): PacingStateValueMap => ({
   'accelerated-closure-window': value,
   'defender-reset-window': value
 });
-
-const clamp = (value: number, min: number, max: number): number =>
-  Math.max(min, Math.min(max, value));
-
-const approach = (value: number, target: number, amount: number): number => {
-  if (value < target) {
-    return Math.min(target, value + amount);
-  }
-
-  return Math.max(target, value - amount);
-};
