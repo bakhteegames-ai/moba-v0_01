@@ -5,6 +5,7 @@ import { createDebugSystem } from './debug/debugBuilder';
 import { createHeadlessCombatRuntime } from './gameplay/headlessCombatRuntime';
 import { createPlayerTestController } from './player/playerTestController';
 import { createAuthoritativePresentationShell } from './presentation/authoritativePresentationShell';
+import { createControlsHintOverlay } from './presentation/controlsHintOverlay';
 import { createPlayerFacingHud } from './presentation/playerFacingHud';
 import { buildGrayboxScene } from './scene/buildGrayboxScene';
 import { createLiveInteractionValidator } from './validation/liveInteractionValidator';
@@ -34,6 +35,7 @@ const playerController = createPlayerTestController(
   headlessCombat
 );
 const presentationShell = createAuthoritativePresentationShell(registry);
+createControlsHintOverlay();
 const playerFacingHud = createPlayerFacingHud();
 const tempoHarness = createTempoHarness();
 const wavePressureValidator = createWavePressureValidator(registry);

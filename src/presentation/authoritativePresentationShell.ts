@@ -69,6 +69,12 @@ interface TargetHealthStripCue {
   fill: pc.Entity;
 }
 
+interface CombatAudioFeedback {
+  playSuccessfulCast(): void;
+  playBlockedCast(failureReason: BlockedCastFailureReason): void;
+  destroy(): void;
+}
+
 type TargetabilityCueState =
   | 'hidden'
   | 'in-range'
@@ -79,6 +85,11 @@ type RangeEnvelopeCueState =
   | 'hidden'
   | 'in-range'
   | 'out-of-range';
+
+type BlockedCastFailureReason = Exclude<
+  NonNullable<HeadlessCombatRuntimeSnapshot['lastResolvedCast']>['failureReason'],
+  null
+>;
 
 type PresentationTier = keyof typeof presentationTuning.indicatorBar.tierOffsets;
 
@@ -103,6 +114,7 @@ export const createAuthoritativePresentationShell = (
   const defenderMaterial = createCueMaterial(presentationTuning.materials.defender);
   const pushMaterial = createCueMaterial(presentationTuning.materials.push);
   const siegeMaterial = createCueMaterial(presentationTuning.materials.siege);
+  const siegeOpenMaterial = createCueMaterial(presentationTuning.materials.siege);
   const structureMaterial = createCueMaterial(
     presentationTuning.materials.structure
   );
@@ -123,6 +135,15 @@ export const createAuthoritativePresentationShell = (
     root,
     presentationTuning.impactPulse.diameter
   );
+  const blockedCastMaterial = createCueMaterial(
+    presentationTuning.targetabilityCue.states.outOfRange
+  );
+  const blockedCastPulse = createSphereCue(
+    'BlockedCastPulseCue',
+    blockedCastMaterial.material,
+    root,
+    presentationTuning.blockedCastPulse.diameter
+  );
   const defenderCue = createDiscCue(
     'DefenderContestCue',
     defenderMaterial.material,
@@ -139,6 +160,15 @@ export const createAuthoritativePresentationShell = (
     {
       radius: presentationTuning.contestCue.diameter,
       thickness: presentationTuning.contestCue.thickness
+    }
+  );
+  const siegeOpenCue = createDiscCue(
+    'SiegeWindowOpenCue',
+    siegeOpenMaterial.material,
+    root,
+    {
+      radius: presentationTuning.siegeOpenCue.radiusRange.min,
+      thickness: presentationTuning.siegeOpenCue.heightRange.min
     }
   );
   const targetabilityCue = createDiscCue(
@@ -210,7 +240,12 @@ export const createAuthoritativePresentationShell = (
   let impactPulseState = createEmptyPulseState(
     presentationTuning.impactPulse.durationSeconds
   );
+  let blockedCastPulseState = createEmptyPulseState(
+    presentationTuning.blockedCastPulse.durationSeconds
+  );
+  const combatAudioFeedback = createCombatAudioFeedback();
   let previousCastCooldownRemaining: number | null = null;
+  let previousBlockedCastSequence: number | null = null;
   let debugState: AuthoritativePresentationShellDebugState = {
     castPulseActive: false,
     impactPulseActive: false,
@@ -269,8 +304,37 @@ export const createAuthoritativePresentationShell = (
           targetWorld,
           targetWorld
         );
+        combatAudioFeedback.playSuccessfulCast();
       }
       previousCastCooldownRemaining = latestCastCooldown;
+
+      const latestBlockedCast =
+        input.combat.lastResolvedCast?.success === false &&
+        input.combat.lastResolvedCast.failureReason !== null
+          ? input.combat.lastResolvedCast
+          : null;
+      if (
+        latestBlockedCast &&
+        latestBlockedCast.sequence !== previousBlockedCastSequence
+      ) {
+        const blockedFailureReason = latestBlockedCast.failureReason;
+        if (blockedFailureReason !== null) {
+          const playerWorld = toWorldPoint(
+            registry,
+            input.combat.player.position.x,
+            input.combat.player.position.z,
+            layoutConfig.player.height *
+              presentationTuning.blockedCastPulse.playerHeightFactor
+          );
+          blockedCastPulseState = createPulseState(
+            presentationTuning.blockedCastPulse.durationSeconds,
+            playerWorld,
+            playerWorld
+          );
+          combatAudioFeedback.playBlockedCast(blockedFailureReason);
+        }
+      }
+      previousBlockedCastSequence = latestBlockedCast?.sequence ?? null;
 
       castPulseState.remainingSeconds = Math.max(
         0,
@@ -280,9 +344,19 @@ export const createAuthoritativePresentationShell = (
         0,
         impactPulseState.remainingSeconds - step
       );
+      blockedCastPulseState.remainingSeconds = Math.max(
+        0,
+        blockedCastPulseState.remainingSeconds - step
+      );
 
       updateCastPulseCue(castPulse, castMaterial, castPulseState);
       updateImpactPulseCue(impactPulse, impactMaterial, impactPulseState);
+      updateBlockedCastPulseCue(
+        blockedCastPulse,
+        blockedCastMaterial,
+        blockedCastPulseState,
+        latestBlockedCast?.failureReason ?? null
+      );
       const targetabilityCueState = deriveTargetabilityCueState(input.combat);
       const rangeEnvelopeCueState = deriveRangeEnvelopeCueState(input.combat);
       updateTargetabilityCue(
@@ -330,6 +404,12 @@ export const createAuthoritativePresentationShell = (
         input.signals.sharedPushReassertion.recoveryRemainingSeconds,
         input.signals.sharedPushReassertion.structureSuppressionRecovery,
         presentationTuning.contestCue.heightOffsets.push
+      );
+      updateSiegeOpenCue(
+        siegeOpenCue,
+        siegeOpenMaterial,
+        anchorWorld,
+        input.signals.sharedSiegeWindow
       );
 
       const indicatorBase = anchorWorld
@@ -395,7 +475,133 @@ export const createAuthoritativePresentationShell = (
       };
     },
     destroy() {
+      combatAudioFeedback.destroy();
       root.destroy();
+    }
+  };
+};
+
+const createCombatAudioFeedback = (): CombatAudioFeedback => {
+  const audioWindow = window as {
+    webkitAudioContext?: typeof AudioContext;
+  };
+  const AudioContextConstructor =
+    globalThis.AudioContext ?? audioWindow.webkitAudioContext;
+
+  if (!AudioContextConstructor) {
+    return {
+      playSuccessfulCast() {},
+      playBlockedCast(_failureReason: BlockedCastFailureReason) {},
+      destroy() {}
+    };
+  }
+
+  let audioContext: AudioContext | null = null;
+  let closed = false;
+
+  const ensureAudioContext = (): AudioContext | null => {
+    if (closed) {
+      return null;
+    }
+
+    if (audioContext) {
+      return audioContext;
+    }
+
+    try {
+      audioContext = new AudioContextConstructor();
+    } catch {
+      return null;
+    }
+
+    return audioContext;
+  };
+
+  const unlock = (): void => {
+    const context = ensureAudioContext();
+    if (!context || context.state !== 'suspended') {
+      return;
+    }
+
+    void context.resume().catch(() => undefined);
+  };
+
+  const handleUnlockGesture = (): void => {
+    unlock();
+  };
+
+  window.addEventListener('pointerdown', handleUnlockGesture, true);
+  window.addEventListener('keydown', handleUnlockGesture, true);
+
+  const schedulePulse = (
+    config: {
+      oscillatorType: OscillatorType;
+      startFrequencyHz: number;
+      endFrequencyHz: number;
+      durationSeconds: number;
+      peakGain: number;
+    },
+    startTime: number
+  ): void => {
+    const context = ensureAudioContext();
+    if (!context || context.state !== 'running') {
+      return;
+    }
+
+    const oscillator = context.createOscillator();
+    const gainNode = context.createGain();
+    oscillator.type = config.oscillatorType;
+    oscillator.frequency.setValueAtTime(config.startFrequencyHz, startTime);
+    oscillator.frequency.exponentialRampToValueAtTime(
+      config.endFrequencyHz,
+      startTime + config.durationSeconds
+    );
+
+    gainNode.gain.setValueAtTime(0.0001, startTime);
+    gainNode.gain.exponentialRampToValueAtTime(
+      config.peakGain,
+      startTime + Math.min(config.durationSeconds * 0.25, 0.02)
+    );
+    gainNode.gain.exponentialRampToValueAtTime(
+      0.0001,
+      startTime + config.durationSeconds
+    );
+
+    oscillator.connect(gainNode);
+    gainNode.connect(context.destination);
+    oscillator.start(startTime);
+    oscillator.stop(startTime + config.durationSeconds);
+  };
+
+  const playConfiguredPulse = (config: {
+    oscillatorType: OscillatorType;
+    startFrequencyHz: number;
+    endFrequencyHz: number;
+    durationSeconds: number;
+    peakGain: number;
+  }): void => {
+    const context = ensureAudioContext();
+    if (!context || context.state !== 'running') {
+      return;
+    }
+
+    schedulePulse(config, context.currentTime);
+  };
+
+  return {
+    playSuccessfulCast() {
+      playConfiguredPulse(presentationTuning.audioFeedback.successCast);
+    },
+    playBlockedCast(_failureReason) {
+      playConfiguredPulse(presentationTuning.audioFeedback.blockedCast);
+    },
+    destroy() {
+      closed = true;
+      window.removeEventListener('pointerdown', handleUnlockGesture, true);
+      window.removeEventListener('keydown', handleUnlockGesture, true);
+      if (audioContext && audioContext.state !== 'closed') {
+        void audioContext.close().catch(() => undefined);
+      }
     }
   };
 };
@@ -629,6 +835,44 @@ const updateImpactPulseCue = (
   );
 };
 
+const updateBlockedCastPulseCue = (
+  entity: pc.Entity,
+  material: CueMaterialBinding,
+  pulse: PulseState,
+  failureReason: BlockedCastFailureReason | null
+): void => {
+  if (pulse.remainingSeconds <= 0 || !failureReason) {
+    entity.enabled = false;
+    return;
+  }
+
+  const normalized = 1 - pulse.remainingSeconds / pulse.durationSeconds;
+  const style = getBlockedCastPulseStyle(failureReason);
+  const scale = lerpNumber(
+    presentationTuning.blockedCastPulse.scaleRange.min,
+    presentationTuning.blockedCastPulse.scaleRange.max,
+    normalized
+  );
+
+  entity.enabled = true;
+  entity.setPosition(pulse.start);
+  entity.setLocalScale(scale, scale, scale);
+  applyMaterialState(
+    material,
+    lerpNumber(
+      style.emissive,
+      presentationTuning.blockedCastPulse.emissiveRange.min,
+      normalized
+    ),
+    lerpNumber(
+      presentationTuning.blockedCastPulse.opacityRange.max,
+      presentationTuning.blockedCastPulse.opacityRange.min,
+      normalized
+    ),
+    style.hex
+  );
+};
+
 const updateTargetabilityCue = (
   entity: pc.Entity,
   material: CueMaterialBinding,
@@ -858,6 +1102,56 @@ const updateContestCue = (
   );
 };
 
+const updateSiegeOpenCue = (
+  entity: pc.Entity,
+  material: CueMaterialBinding,
+  anchorWorld: pc.Vec3,
+  siegeWindow: PresentationSignals['sharedSiegeWindow']
+): void => {
+  if (!siegeWindow.siegeWindowActive) {
+    entity.enabled = false;
+    return;
+  }
+
+  const supportLevel = clamp(
+    Math.max(
+      siegeWindow.pressureSupportLevel,
+      siegeWindow.occupancySupportLevel
+    ),
+    0,
+    1
+  );
+  const height = lerpNumber(
+    presentationTuning.siegeOpenCue.heightRange.min,
+    presentationTuning.siegeOpenCue.heightRange.max,
+    supportLevel
+  );
+  const radius = lerpNumber(
+    presentationTuning.siegeOpenCue.radiusRange.min,
+    presentationTuning.siegeOpenCue.radiusRange.max,
+    supportLevel
+  );
+
+  entity.enabled = true;
+  entity.setPosition(anchorWorld.x, anchorWorld.y + height * 0.5, anchorWorld.z);
+  entity.setLocalScale(radius, height, radius);
+  applyMaterialState(
+    material,
+    lerpNumber(
+      presentationTuning.siegeOpenCue.emissiveRange.min,
+      presentationTuning.siegeOpenCue.emissiveRange.max,
+      supportLevel
+    ),
+    clamp(
+      presentationTuning.siegeOpenCue.opacityBase +
+        siegeWindow.siegeWindowRemainingSeconds *
+          presentationTuning.siegeOpenCue.opacityRemainingSecondsMultiplier,
+      presentationTuning.siegeOpenCue.opacityClamp.min,
+      presentationTuning.siegeOpenCue.opacityClamp.max
+    )
+  );
+};
+
 const updateIndicatorBar = (
   entity: pc.Entity,
   material: CueMaterialBinding,
@@ -974,6 +1268,22 @@ const getTargetabilityCueStyle = (
       presentationTuning.targetabilityCue.states.blockedBoost.opacityBonus
   };
 };
+
+const getBlockedCastPulseStyle = (
+  failureReason: BlockedCastFailureReason
+): {
+  hex: string;
+  emissive: number;
+} =>
+  failureReason === 'on-cooldown'
+    ? {
+        hex: presentationTuning.targetabilityCue.states.cooldown.hex,
+        emissive: presentationTuning.blockedCastPulse.emissiveRange.max * 0.82
+      }
+    : {
+        hex: presentationTuning.targetabilityCue.states.outOfRange.hex,
+        emissive: presentationTuning.blockedCastPulse.emissiveRange.max
+      };
 
 const isTargetWithinCastRange = (
   combat: HeadlessCombatRuntimeSnapshot

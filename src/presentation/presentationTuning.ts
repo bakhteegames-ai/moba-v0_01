@@ -30,6 +30,39 @@ export const presentationTuning = {
       max: 0.9
     }
   },
+  blockedCastPulse: {
+    durationSeconds: 0.14,
+    diameter: 0.48,
+    playerHeightFactor: 0.52,
+    scaleRange: {
+      min: 0.42,
+      max: 1.08
+    },
+    emissiveRange: {
+      min: 0.18,
+      max: 0.82
+    },
+    opacityRange: {
+      min: 0.14,
+      max: 0.76
+    }
+  },
+  audioFeedback: {
+    successCast: {
+      oscillatorType: 'triangle',
+      startFrequencyHz: 620,
+      endFrequencyHz: 980,
+      durationSeconds: 0.09,
+      peakGain: 0.018
+    },
+    blockedCast: {
+      oscillatorType: 'square',
+      startFrequencyHz: 240,
+      endFrequencyHz: 160,
+      durationSeconds: 0.08,
+      peakGain: 0.014
+    }
+  },
   contestCue: {
     diameter: 5.4,
     heightOffsets: {
@@ -56,6 +89,26 @@ export const presentationTuning = {
     opacityBase: 0.18,
     opacityRemainingSecondsMultiplier: 0.32,
     thickness: 0.08
+  },
+  siegeOpenCue: {
+    radiusRange: {
+      min: 0.34,
+      max: 0.78
+    },
+    heightRange: {
+      min: 0.28,
+      max: 1.4
+    },
+    emissiveRange: {
+      min: 0.12,
+      max: 0.36
+    },
+    opacityClamp: {
+      min: 0.14,
+      max: 0.38
+    },
+    opacityBase: 0.12,
+    opacityRemainingSecondsMultiplier: 0.04
   },
   targetabilityCue: {
     heightOffset: 0.18,
