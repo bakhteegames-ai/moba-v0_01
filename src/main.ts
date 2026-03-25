@@ -12,6 +12,7 @@ import {
   wireBrowserRuntime
 } from './runtime/browserBootstrap';
 import { buildGrayboxScene } from './scene/buildGrayboxScene';
+import { createRuntimeInteractionProbeHarness } from './validation/runtimeInteractionProbeHarness';
 import { createLiveInteractionValidator } from './validation/liveInteractionValidator';
 import { createTempoHarness } from './validation/tempoHarness';
 import { createWavePressureValidator } from './validation/wavePressureValidator';
@@ -23,6 +24,7 @@ const headlessCombat = createHeadlessCombatRuntime();
 const liveInteractionValidator = createLiveInteractionValidator();
 const liveInteractionControls = liveInteractionValidator.getCalibrationOperatorControls();
 const debugSystem = createDebugSystem(registry);
+const runtimeProbeHarness = createRuntimeInteractionProbeHarness();
 const playerController = createPlayerTestController(
   app,
   registry,
@@ -41,11 +43,17 @@ const runFrame = (dt: number): void => {
   liveInteractionValidator.update(
     dt,
     headlessCombatSnapshot.sharedLaneConsequence,
-    headlessCombatSnapshot.lastStructureInteractionRequest
+    headlessCombatSnapshot.lastStructureInteractionRequest,
+    headlessCombatSnapshot.runtimeLaneTelemetry
   );
   tempoHarness.update(dt);
   wavePressureValidator.update(dt);
   const liveInteractionSnapshot = liveInteractionValidator.getDebugState();
+  runtimeProbeHarness.update(
+    headlessCombat,
+    headlessCombatSnapshot,
+    liveInteractionSnapshot
+  );
   presentationShell.update(dt, {
     combat: headlessCombatSnapshot,
     signals: liveInteractionSnapshot.signalProvider
@@ -71,10 +79,17 @@ const runFrame = (dt: number): void => {
 
 wireBrowserRuntime(app, {
   runFrame,
+  startRuntimeProbe() {
+    runtimeProbeHarness.start('structure-to-closure');
+  },
+  clearRuntimeProbe() {
+    runtimeProbeHarness.clear();
+  },
   renderGameToText() {
     const snapshot = headlessCombat.getSnapshot();
     const liveInteractionSnapshot = liveInteractionValidator.getDebugState();
     const presentationSnapshot = presentationShell.getDebugState();
+    const runtimeProbeSnapshot = runtimeProbeHarness.getSnapshot();
     return JSON.stringify({
       coordinateSystem: {
         origin: layoutConfig.coordinateModel.origin,
@@ -182,6 +197,200 @@ wireBrowserRuntime(app, {
               liveInteractionSnapshot.signalProvider.sharedLaneConsequence
                 .lastBridgeOutcomeSummary
           }
+        },
+        laneTelemetry: {
+          source: liveInteractionSnapshot.signalProvider.laneTelemetrySource,
+          activeSegment:
+            liveInteractionSnapshot.signalProvider.runtimeLaneTelemetry
+              ?.activeSegment ?? null,
+          frontLaneSegment:
+            liveInteractionSnapshot.signalProvider.runtimeLaneTelemetry
+              ?.frontLaneSegment ?? null,
+          carryoverRelevance:
+            liveInteractionSnapshot.signalProvider.runtimeLaneTelemetry
+              ? round(
+                  liveInteractionSnapshot.signalProvider.runtimeLaneTelemetry
+                    .consecutiveWaveCarryoverRelevance
+                )
+              : null,
+          segmentOccupancyPresence:
+            liveInteractionSnapshot.signalProvider.runtimeLaneTelemetry
+              ? {
+                  'outer-front': round(
+                    liveInteractionSnapshot.signalProvider.runtimeLaneTelemetry
+                      .segmentOccupancyPresence['outer-front']
+                  ),
+                  'inner-siege': round(
+                    liveInteractionSnapshot.signalProvider.runtimeLaneTelemetry
+                      .segmentOccupancyPresence['inner-siege']
+                  ),
+                  'core-approach': round(
+                    liveInteractionSnapshot.signalProvider.runtimeLaneTelemetry
+                      .segmentOccupancyPresence['core-approach']
+                  )
+                }
+              : null,
+          structureContactByTier:
+            liveInteractionSnapshot.signalProvider.runtimeLaneTelemetry
+              ? {
+                  outer: {
+                    active:
+                      liveInteractionSnapshot.signalProvider.runtimeLaneTelemetry
+                        .structureContactByTier.outer.active,
+                    windowSeconds: round(
+                      liveInteractionSnapshot.signalProvider.runtimeLaneTelemetry
+                        .structureContactByTier.outer.windowSeconds
+                    ),
+                    pressure: round(
+                      liveInteractionSnapshot.signalProvider.runtimeLaneTelemetry
+                        .structureContactByTier.outer.pressure
+                    )
+                  },
+                  inner: {
+                    active:
+                      liveInteractionSnapshot.signalProvider.runtimeLaneTelemetry
+                        .structureContactByTier.inner.active,
+                    windowSeconds: round(
+                      liveInteractionSnapshot.signalProvider.runtimeLaneTelemetry
+                        .structureContactByTier.inner.windowSeconds
+                    ),
+                    pressure: round(
+                      liveInteractionSnapshot.signalProvider.runtimeLaneTelemetry
+                        .structureContactByTier.inner.pressure
+                    )
+                  },
+                  core: {
+                    active:
+                      liveInteractionSnapshot.signalProvider.runtimeLaneTelemetry
+                        .structureContactByTier.core.active,
+                    windowSeconds: round(
+                      liveInteractionSnapshot.signalProvider.runtimeLaneTelemetry
+                        .structureContactByTier.core.windowSeconds
+                    ),
+                    pressure: round(
+                      liveInteractionSnapshot.signalProvider.runtimeLaneTelemetry
+                        .structureContactByTier.core.pressure
+                    )
+                  }
+                }
+              : null,
+          interactionPulse:
+            liveInteractionSnapshot.signalProvider.runtimeLaneTelemetry
+              ? {
+                  active:
+                    liveInteractionSnapshot.signalProvider.runtimeLaneTelemetry
+                      .interactionPulse.active,
+                  remainingSeconds: round(
+                    liveInteractionSnapshot.signalProvider.runtimeLaneTelemetry
+                      .interactionPulse.remainingSeconds
+                  ),
+                  supportScalar: round(
+                    liveInteractionSnapshot.signalProvider.runtimeLaneTelemetry
+                      .interactionPulse.supportScalar
+                  ),
+                  supportTier:
+                    liveInteractionSnapshot.signalProvider.runtimeLaneTelemetry
+                      .interactionPulse.supportTier
+                }
+              : null
+        },
+        runtimeObservation: {
+          phase: liveInteractionSnapshot.runtimeObservation.currentPhase,
+          phaseAgeSeconds: round(
+            liveInteractionSnapshot.runtimeObservation.currentPhaseAgeSeconds
+          ),
+          orderingState:
+            liveInteractionSnapshot.runtimeObservation.orderingState,
+          windowPlausibility:
+            liveInteractionSnapshot.runtimeObservation.windowPlausibility,
+          progressionState:
+            liveInteractionSnapshot.runtimeObservation.progressionState,
+          lastObserved: {
+            contactStartSeconds: roundNullable(
+              liveInteractionSnapshot.runtimeObservation.lastObserved
+                .contactStartSeconds
+            ),
+            pulseStartSeconds: roundNullable(
+              liveInteractionSnapshot.runtimeObservation.lastObserved
+                .pulseStartSeconds
+            ),
+            pulseExpireSeconds: roundNullable(
+              liveInteractionSnapshot.runtimeObservation.lastObserved
+                .pulseExpireSeconds
+            ),
+            siegeWindowOpenSeconds: roundNullable(
+              liveInteractionSnapshot.runtimeObservation.lastObserved
+                .siegeWindowOpenSeconds
+            ),
+            structureAdvanceSeconds: roundNullable(
+              liveInteractionSnapshot.runtimeObservation.lastObserved
+                .structureAdvanceSeconds
+            ),
+            structureResolveSeconds: roundNullable(
+              liveInteractionSnapshot.runtimeObservation.lastObserved
+                .structureResolveSeconds
+            ),
+            closureAdvanceSeconds: roundNullable(
+              liveInteractionSnapshot.runtimeObservation.lastObserved
+                .closureAdvanceSeconds
+            ),
+            closureResolveSeconds: roundNullable(
+              liveInteractionSnapshot.runtimeObservation.lastObserved
+                .closureResolveSeconds
+            )
+          },
+          summary: liveInteractionSnapshot.runtimeObservation.summary
+        },
+        runtimeSequenceAssessment: {
+          overallVerdict:
+            liveInteractionSnapshot.runtimeSequenceAssessment.overallVerdict,
+          observedSequenceCount:
+            liveInteractionSnapshot.runtimeSequenceAssessment
+              .observedSequenceCount,
+          completedSequenceCount:
+            liveInteractionSnapshot.runtimeSequenceAssessment
+              .completedSequenceCount,
+          incidentCounts: {
+            outOfOrder:
+              liveInteractionSnapshot.runtimeSequenceAssessment.incidentCounts
+                .outOfOrder,
+            lingeringWindow:
+              liveInteractionSnapshot.runtimeSequenceAssessment.incidentCounts
+                .lingeringWindow,
+            stalls:
+              liveInteractionSnapshot.runtimeSequenceAssessment.incidentCounts
+                .stalls
+          },
+          currentLiveSequenceHealth:
+            liveInteractionSnapshot.runtimeSequenceAssessment
+              .currentLiveSequenceHealth,
+          lastCompletedSequenceSummary:
+            liveInteractionSnapshot.runtimeSequenceAssessment
+              .lastCompletedSequenceSummary,
+          summary: liveInteractionSnapshot.runtimeSequenceAssessment.summary
+        },
+        runtimeEvidenceLedger: {
+          capacity: liveInteractionSnapshot.runtimeEvidenceLedger.capacity,
+          summary: liveInteractionSnapshot.runtimeEvidenceLedger.summary,
+          entries: liveInteractionSnapshot.runtimeEvidenceLedger.entries.map(
+            (entry) => ({
+              kind: entry.kind,
+              verdict: entry.verdict,
+              observedAtSeconds: round(entry.observedAtSeconds),
+              triggerPhase: entry.triggerPhase,
+              durationSeconds: roundNullable(entry.durationSeconds),
+              incidentTag: entry.incidentTag,
+              summary: entry.summary
+            })
+          )
+        },
+        runtimeProbe: {
+          active: runtimeProbeSnapshot.active,
+          presetId: runtimeProbeSnapshot.presetId,
+          phase: runtimeProbeSnapshot.phase,
+          completed: runtimeProbeSnapshot.completed,
+          failed: runtimeProbeSnapshot.failed,
+          summary: runtimeProbeSnapshot.summary
         },
         sharedSiegeWindow: {
           active: liveInteractionSnapshot.signalProvider.sharedSiegeWindow
@@ -373,3 +582,6 @@ wireBrowserRuntime(app, {
 app.start();
 
 const round = (value: number): number => Math.round(value * 100) / 100;
+
+const roundNullable = (value: number | null): number | null =>
+  value === null ? null : round(value);

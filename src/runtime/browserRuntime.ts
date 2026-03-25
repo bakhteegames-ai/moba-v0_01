@@ -1,11 +1,15 @@
 export interface BrowserRuntimeDebugBindings {
   advanceTime: (ms: number) => void;
   renderGameToText: () => string;
+  startRuntimeProbe?: () => void;
+  clearRuntimeProbe?: () => void;
 }
 
 type BrowserDebugWindow = Window & {
   advanceTime?: (ms: number) => void;
   render_game_to_text?: () => string;
+  start_runtime_probe?: () => void;
+  clear_runtime_probe?: () => void;
 };
 
 export const requireBrowserCanvas = (elementId: string): HTMLCanvasElement => {
@@ -34,4 +38,10 @@ export const installBrowserDebugBindings = (
   const debugWindow = window as BrowserDebugWindow;
   debugWindow.advanceTime = bindings.advanceTime;
   debugWindow.render_game_to_text = bindings.renderGameToText;
+  if (bindings.startRuntimeProbe) {
+    debugWindow.start_runtime_probe = bindings.startRuntimeProbe;
+  }
+  if (bindings.clearRuntimeProbe) {
+    debugWindow.clear_runtime_probe = bindings.clearRuntimeProbe;
+  }
 };

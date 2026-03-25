@@ -8,6 +8,8 @@ import {
 export interface BrowserBootstrapBindings {
   runFrame: (dt: number) => void;
   renderGameToText: () => string;
+  startRuntimeProbe?: () => void;
+  clearRuntimeProbe?: () => void;
 }
 
 export const createBrowserApplication = (
@@ -33,6 +35,8 @@ export const wireBrowserRuntime = (
         bindings.runFrame(fixedStepSeconds);
       }
     },
-    renderGameToText: bindings.renderGameToText
+    renderGameToText: bindings.renderGameToText,
+    startRuntimeProbe: bindings.startRuntimeProbe,
+    clearRuntimeProbe: bindings.clearRuntimeProbe
   });
 };

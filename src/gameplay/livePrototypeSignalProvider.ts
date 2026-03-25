@@ -94,6 +94,10 @@ import {
   type SharedPushReassertionSnapshot
 } from './sharedPushReassertionSlice';
 import { gameplayTuningConfig } from './gameplayTuningConfig';
+import {
+  cloneRuntimeLaneTelemetrySnapshot,
+  type RuntimeLaneTelemetrySnapshot
+} from './runtimeLaneTelemetryProducer';
 
 type TierScalars = Record<StructurePressureTier, number>;
 type SegmentScalars = Record<LanePressureSegment, number>;
@@ -119,6 +123,8 @@ export interface LivePrototypeSignalProviderDebugState {
   carryoverRelevance: number;
   scenarioSamples: number;
   activeSegment: LanePressureSegment;
+  laneTelemetrySource: 'runtime' | 'synthetic-fallback';
+  runtimeLaneTelemetry: RuntimeLaneTelemetrySnapshot | null;
   frontWaveSegment: LanePressureSegment;
   frontWaveProgress: number;
   spawnedWaveCount: number;
@@ -501,7 +507,8 @@ export interface LivePrototypeSignalProvider {
   update(
     dt: number,
     sharedLaneConsequence?: HeadlessBridgeLaneConsequenceSnapshot,
-    structureInteractionRequest?: StructureConversionInteractionRequest | null
+    structureInteractionRequest?: StructureConversionInteractionRequest | null,
+    runtimeLaneTelemetry?: RuntimeLaneTelemetrySnapshot | null
   ): void;
   getGlobalSignals(): LivePrototypeSignals;
   getScenarioSignals(
@@ -544,10 +551,16 @@ export const createLivePrototypeSignalProvider =
     };
 
     return {
-      update(dt, sharedLaneConsequence, structureInteractionRequest) {
+      update(
+        dt,
+        sharedLaneConsequence,
+        structureInteractionRequest,
+        runtimeLaneTelemetry
+      ) {
         if (sharedLaneConsequence) {
           laneStateLoop.setSharedLaneConsequence(sharedLaneConsequence);
         }
+        laneStateLoop.setRuntimeLaneTelemetry(runtimeLaneTelemetry ?? null);
         if (structureInteractionRequest) {
           laneStateLoop.submitStructureConversionInteraction(
             structureInteractionRequest
@@ -635,6 +648,10 @@ export const createLivePrototypeSignalProvider =
           carryoverRelevance: snapshot.consecutiveWaveCarryoverRelevance,
           scenarioSamples: state.scenarioSamples,
           activeSegment: snapshot.activeSegment,
+          laneTelemetrySource: snapshot.laneTelemetrySource,
+          runtimeLaneTelemetry: snapshot.runtimeLaneTelemetry
+            ? cloneRuntimeLaneTelemetrySnapshot(snapshot.runtimeLaneTelemetry)
+            : null,
           frontWaveSegment: snapshot.frontWaveSegment,
           frontWaveProgress: snapshot.frontWaveProgress,
           spawnedWaveCount: snapshot.spawnedWaveCount,

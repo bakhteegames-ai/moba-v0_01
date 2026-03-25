@@ -118,6 +118,10 @@ import {
 } from './sharedPushReassertionSlice';
 import { approach, clamp } from './calibrationUtils';
 import { gameplayTuningConfig } from './gameplayTuningConfig';
+import {
+  cloneRuntimeLaneTelemetrySnapshot,
+  type RuntimeLaneTelemetrySnapshot
+} from './runtimeLaneTelemetryProducer';
 import { type SegmentValues, type TierValues } from './sharedPressureTypes';
 
 type TierStates = Record<StructurePressureTier, DefenderHoldState>;
@@ -151,6 +155,8 @@ export interface PrototypeLaneStateSnapshot {
   cycleSeconds: number;
   phase: number;
   activeSegment: LanePressureSegment;
+  laneTelemetrySource: 'runtime' | 'synthetic-fallback';
+  runtimeLaneTelemetry: RuntimeLaneTelemetrySnapshot | null;
   frontWaveSegment: LanePressureSegment;
   frontWaveProgress: number;
   spawnedWaveCount: number;
@@ -214,6 +220,9 @@ export interface PrototypeLaneStateLoop {
   update(dt: number): void;
   setSharedLaneConsequence(
     consequence: HeadlessBridgeLaneConsequenceSnapshot
+  ): void;
+  setRuntimeLaneTelemetry(
+    telemetry: RuntimeLaneTelemetrySnapshot | null
   ): void;
   submitStructureConversionInteraction(
     request: StructureConversionInteractionRequest
@@ -301,6 +310,7 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
     createDefaultSharedDefenderResponseSnapshot();
   let sharedPushReassertion =
     createDefaultSharedPushReassertionSnapshot();
+  let runtimeLaneTelemetry: RuntimeLaneTelemetrySnapshot | null = null;
   let latestStructureInteractionRequest: StructureConversionInteractionRequest | null =
     null;
   let processedStructureInteractionSequence = 0;
@@ -391,7 +401,10 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
 
       memory.elapsedSeconds += dt;
       occupancyProducer.update(dt);
-      const occupancy = occupancyProducer.getSnapshot();
+      const occupancy = resolveLaneOccupancySnapshot(
+        runtimeLaneTelemetry,
+        occupancyProducer.getSnapshot()
+      );
       const sharedLaneModifier =
         buildHeadlessBridgeLaneModifier(sharedLaneConsequence);
       const lanePressureEstimate = buildLanePressureEstimate(
@@ -616,6 +629,11 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
       sharedLaneConsequence =
         cloneHeadlessBridgeLaneConsequenceSnapshot(consequence);
     },
+    setRuntimeLaneTelemetry(telemetry) {
+      runtimeLaneTelemetry = telemetry
+        ? cloneRuntimeLaneTelemetrySnapshot(telemetry)
+        : null;
+    },
     submitStructureConversionInteraction(request) {
       latestStructureInteractionRequest = {
         sequence: request.sequence,
@@ -627,7 +645,10 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
       };
     },
     getSnapshot() {
-      const occupancy = occupancyProducer.getSnapshot();
+      const occupancy = resolveLaneOccupancySnapshot(
+        runtimeLaneTelemetry,
+        occupancyProducer.getSnapshot()
+      );
       const eventSnapshot = structureEventTracker.getSnapshot(memory.elapsedSeconds);
       const resolutionSnapshot = structureResolutionMemory.getSnapshot();
       const laneClosureSnapshot = laneClosurePosture.getSnapshot();
@@ -653,6 +674,10 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
       return computeSnapshot(
         memory,
         occupancy,
+        runtimeLaneTelemetry
+          ? 'runtime'
+          : 'synthetic-fallback',
+        runtimeLaneTelemetry,
         eventSnapshot,
         resolutionSnapshot,
         laneClosureSnapshot,
@@ -853,6 +878,8 @@ export const createPrototypeLaneStateLoop = (): PrototypeLaneStateLoop => {
 const computeSnapshot = (
   memory: LaneStateMemory,
   occupancy: PrototypeLaneOccupancySnapshot,
+  laneTelemetrySource: 'runtime' | 'synthetic-fallback',
+  runtimeLaneTelemetry: RuntimeLaneTelemetrySnapshot | null,
   eventSnapshot: StructurePressureEventSnapshot,
   resolutionSnapshot: StructureResolutionSnapshot,
   laneClosureSnapshot: LaneClosurePostureSnapshot,
@@ -1081,6 +1108,10 @@ const computeSnapshot = (
     cycleSeconds: occupancy.cycleSeconds,
     phase,
     activeSegment: occupancy.frontWaveSegment,
+    laneTelemetrySource,
+    runtimeLaneTelemetry: runtimeLaneTelemetry
+      ? cloneRuntimeLaneTelemetrySnapshot(runtimeLaneTelemetry)
+      : null,
     frontWaveSegment: occupancy.frontWaveSegment,
     frontWaveProgress: occupancy.frontWaveProgress,
     spawnedWaveCount: occupancy.spawnedWaveCount,
@@ -1174,6 +1205,49 @@ const computeSnapshot = (
     )
   };
 };
+
+const resolveLaneOccupancySnapshot = (
+  runtimeLaneTelemetry: RuntimeLaneTelemetrySnapshot | null,
+  syntheticOccupancy: PrototypeLaneOccupancySnapshot
+): PrototypeLaneOccupancySnapshot => {
+  if (!runtimeLaneTelemetry) {
+    return syntheticOccupancy;
+  }
+
+  return {
+    ...syntheticOccupancy,
+    elapsedSeconds: runtimeLaneTelemetry.elapsedSeconds,
+    activeWaveCount: computeRuntimeOccupancyCount(
+      runtimeLaneTelemetry.segmentOccupancyCount
+    ),
+    frontWaveSegment: runtimeLaneTelemetry.frontLaneSegment,
+    frontWaveProgress: runtimeLaneTelemetry.frontLaneProgress,
+    segmentOccupancyCount: { ...runtimeLaneTelemetry.segmentOccupancyCount },
+    segmentOccupancyPresence: {
+      ...runtimeLaneTelemetry.segmentOccupancyPresence
+    },
+    segmentTimeInSegmentSeconds: {
+      ...runtimeLaneTelemetry.segmentTimeInSegmentSeconds
+    },
+    consecutiveWaveCarryoverRelevance:
+      runtimeLaneTelemetry.consecutiveWaveCarryoverRelevance,
+    structureContactByTier: {
+      outer: { ...runtimeLaneTelemetry.structureContactByTier.outer },
+      inner: { ...runtimeLaneTelemetry.structureContactByTier.inner },
+      core: { ...runtimeLaneTelemetry.structureContactByTier.core }
+    },
+    defenderTimingTagsByTier: {
+      outer: { ...runtimeLaneTelemetry.defenderTimingTagsByTier.outer },
+      inner: { ...runtimeLaneTelemetry.defenderTimingTagsByTier.inner },
+      core: { ...runtimeLaneTelemetry.defenderTimingTagsByTier.core }
+    }
+  };
+};
+
+const computeRuntimeOccupancyCount = (segmentCounts: SegmentValues): number =>
+  Number(segmentCounts['outer-front'] > 0) +
+  Number(segmentCounts['inner-siege'] > 0) +
+  Number(segmentCounts['core-approach'] > 0);
 
 const computeCarryoverTarget = (
   occupancy: PrototypeLaneOccupancySnapshot,

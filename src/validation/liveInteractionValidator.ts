@@ -18,6 +18,19 @@ import {
   type StructurePressureTier
 } from '../gameplay/pressureCalibrationScaffold';
 import { type StructureConversionInteractionRequest } from '../gameplay/prototypeLaneStateLoop';
+import { type RuntimeLaneTelemetrySnapshot } from '../gameplay/runtimeLaneTelemetryProducer';
+import {
+  createRuntimeInteractionObservation,
+  type RuntimeInteractionObservationSnapshot
+} from './runtimeInteractionObservation';
+import {
+  createRuntimeInteractionSequenceAssessment,
+  type RuntimeInteractionSequenceAssessmentSnapshot
+} from './runtimeInteractionSequenceAssessment';
+import {
+  createRuntimeInteractionEvidenceLedger,
+  type RuntimeInteractionEvidenceLedgerSnapshot
+} from './runtimeInteractionEvidenceLedger';
 
 type LiveScenarioId =
   | 'outer-inner-live'
@@ -70,6 +83,9 @@ export interface LiveInteractionDebugState {
   coefficients: LiveCoefficients;
   prototypeSignals: LivePrototypeSignals;
   signalProvider: LivePrototypeSignalProviderDebugState;
+  runtimeObservation: RuntimeInteractionObservationSnapshot;
+  runtimeSequenceAssessment: RuntimeInteractionSequenceAssessmentSnapshot;
+  runtimeEvidenceLedger: RuntimeInteractionEvidenceLedgerSnapshot;
   scenarios: LiveScenarioResult[];
 }
 
@@ -93,7 +109,8 @@ export interface LiveInteractionValidator {
   update(
     dt: number,
     sharedLaneConsequence?: HeadlessBridgeLaneConsequenceSnapshot,
-    structureInteractionRequest?: StructureConversionInteractionRequest | null
+    structureInteractionRequest?: StructureConversionInteractionRequest | null,
+    runtimeLaneTelemetry?: RuntimeLaneTelemetrySnapshot | null
   ): void;
   getDebugState(): LiveInteractionDebugState;
   getCalibrationOperatorControls(): LiveInteractionCalibrationOperatorControls;
@@ -104,9 +121,18 @@ const refreshIntervalSeconds = 0.25;
 const simulationStepSeconds = 0.1;
 const prototypeAdapter = createLivePrototypeAdapter();
 const signalProvider = createLivePrototypeSignalProvider();
+const runtimeObservation = createRuntimeInteractionObservation();
+const runtimeSequenceAssessment = createRuntimeInteractionSequenceAssessment();
+const runtimeEvidenceLedger = createRuntimeInteractionEvidenceLedger();
 
 export const createLiveInteractionValidator = (): LiveInteractionValidator => {
   let elapsedSinceRefresh = 0;
+  runtimeObservation.update(signalProvider.getDebugState());
+  runtimeSequenceAssessment.update(runtimeObservation.getSnapshot());
+  runtimeEvidenceLedger.update(
+    runtimeObservation.getSnapshot(),
+    runtimeSequenceAssessment.getSnapshot()
+  );
   let debugState = computeDebugState();
 
   const refreshDebugState = (): void => {
@@ -146,13 +172,33 @@ export const createLiveInteractionValidator = (): LiveInteractionValidator => {
   };
 
   return {
-    update(dt, sharedLaneConsequence, structureInteractionRequest) {
+    update(
+      dt,
+      sharedLaneConsequence,
+      structureInteractionRequest,
+      runtimeLaneTelemetry
+    ) {
       elapsedSinceRefresh += dt;
       signalProvider.update(
         dt,
         sharedLaneConsequence,
-        structureInteractionRequest
+        structureInteractionRequest,
+        runtimeLaneTelemetry
       );
+      const liveSignalProviderDebug = signalProvider.getDebugState();
+      runtimeObservation.update(liveSignalProviderDebug);
+      runtimeSequenceAssessment.update(runtimeObservation.getSnapshot());
+      runtimeEvidenceLedger.update(
+        runtimeObservation.getSnapshot(),
+        runtimeSequenceAssessment.getSnapshot()
+      );
+      debugState = {
+        ...debugState,
+        signalProvider: liveSignalProviderDebug,
+        runtimeObservation: runtimeObservation.getSnapshot(),
+        runtimeSequenceAssessment: runtimeSequenceAssessment.getSnapshot(),
+        runtimeEvidenceLedger: runtimeEvidenceLedger.getSnapshot()
+      };
       if (elapsedSinceRefresh < refreshIntervalSeconds) {
         return;
       }
@@ -213,6 +259,9 @@ const computeDebugState = (): LiveInteractionDebugState => {
     coefficients,
     prototypeSignals,
     signalProvider: signalProvider.getDebugState(),
+    runtimeObservation: runtimeObservation.getSnapshot(),
+    runtimeSequenceAssessment: runtimeSequenceAssessment.getSnapshot(),
+    runtimeEvidenceLedger: runtimeEvidenceLedger.getSnapshot(),
     scenarios
   };
 };

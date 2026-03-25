@@ -31,6 +31,12 @@ import {
   type StructureConversionInteractionRequest
 } from './prototypeLaneStateLoop';
 import { gameplayTuningConfig } from './gameplayTuningConfig';
+import {
+  cloneRuntimeLaneTelemetrySnapshot,
+  createRuntimeLaneTelemetrySnapshot,
+  type RuntimeStructureInteractionPulse,
+  type RuntimeLaneTelemetrySnapshot
+} from './runtimeLaneTelemetryProducer';
 
 export interface HeadlessCombatRuntimeEntitySnapshot {
   id: string;
@@ -57,6 +63,7 @@ export interface HeadlessCombatRuntimeSnapshot {
   laneBridge: HeadlessCombatLaneBridgeSnapshot;
   sharedLaneConsequence: HeadlessBridgeLaneConsequenceSnapshot;
   lastStructureInteractionRequest: StructureConversionInteractionRequest | null;
+  runtimeLaneTelemetry: RuntimeLaneTelemetrySnapshot | null;
   laneDeterminismProof: HeadlessCombatLaneDeterminismProofSnapshot;
 }
 
@@ -84,6 +91,8 @@ const basicAbility = {
   damage: 34
 };
 const fixedStepSeconds = 1 / 60;
+const runtimeStructureInteractionPulseDurationSeconds =
+  layoutConfig.tempo.coefficients.objectiveCommitSeconds;
 const deterministicApproachLeadSeconds = 7;
 const deterministicCastConfirmSeconds = 0.1;
 const deterministicContestSampleSeconds = 0.25;
@@ -140,6 +149,9 @@ export const createHeadlessCombatRuntime = (): HeadlessCombatRuntime => {
   let accumulatorSeconds = 0;
   let lastStructureInteractionRequest: StructureConversionInteractionRequest | null =
     null;
+  let runtimeStructureInteractionPulseRequest: StructureConversionInteractionRequest | null =
+    null;
+  let runtimeStructureInteractionPulseExpiresAtSeconds: number | null = null;
   let nextStructureInteractionSequence = 1;
 
   laneBridge.update(0, simulation.getSnapshot());
@@ -181,11 +193,17 @@ export const createHeadlessCombatRuntime = (): HeadlessCombatRuntime => {
         return;
       }
 
-      lastStructureInteractionRequest = {
+      const structureInteractionRequest: StructureConversionInteractionRequest = {
         sequence: nextStructureInteractionSequence,
         playerAlive: true,
         playerPosition: cloneVector(player.position)
       };
+      lastStructureInteractionRequest = structureInteractionRequest;
+      runtimeStructureInteractionPulseRequest =
+        cloneStructureInteractionRequest(structureInteractionRequest);
+      runtimeStructureInteractionPulseExpiresAtSeconds =
+        simulationSnapshot.elapsedSeconds +
+        runtimeStructureInteractionPulseDurationSeconds;
       nextStructureInteractionSequence += 1;
     },
     teleportPlayer(position) {
@@ -214,6 +232,23 @@ export const createHeadlessCombatRuntime = (): HeadlessCombatRuntime => {
     getSnapshot() {
       const simulationSnapshot = simulation.getSnapshot();
       const laneBridgeSnapshot = laneBridge.getSnapshot();
+      const sharedLaneConsequence =
+        adaptHeadlessCombatLaneBridgeToLaneConsequence(laneBridgeSnapshot);
+      const runtimeStructureInteractionPulse =
+        resolveRuntimeStructureInteractionPulse(
+          simulationSnapshot.elapsedSeconds,
+          runtimeStructureInteractionPulseRequest,
+          runtimeStructureInteractionPulseExpiresAtSeconds
+        );
+      const runtimeLaneTelemetry = createRuntimeLaneTelemetrySnapshot({
+        elapsedSeconds: simulationSnapshot.elapsedSeconds,
+        playerPosition: getSnapshotEntity(simulationSnapshot, playerHeroId)
+          .position,
+        blockerAlive: getSnapshotEntity(simulationSnapshot, laneBlockerId)
+          .alive,
+        sharedLaneConsequence,
+        structureInteractionPulse: runtimeStructureInteractionPulse
+      });
       return {
         elapsedSeconds: simulationSnapshot.elapsedSeconds,
         fixedStepSeconds: simulationSnapshot.fixedStepSeconds,
@@ -231,11 +266,13 @@ export const createHeadlessCombatRuntime = (): HeadlessCombatRuntime => {
         lastLegalityFailureReason:
           simulationSnapshot.lastLegalityFailureReason,
         laneBridge: laneBridgeSnapshot,
-        sharedLaneConsequence:
-          adaptHeadlessCombatLaneBridgeToLaneConsequence(laneBridgeSnapshot),
+        sharedLaneConsequence,
         lastStructureInteractionRequest: lastStructureInteractionRequest
           ? cloneStructureInteractionRequest(lastStructureInteractionRequest)
           : null,
+        runtimeLaneTelemetry: cloneRuntimeLaneTelemetrySnapshot(
+          runtimeLaneTelemetry
+        ),
         laneDeterminismProof: { ...laneDeterminismProof }
       };
     }
@@ -622,6 +659,25 @@ const cloneStructureInteractionRequest = (
   playerAlive: request.playerAlive,
   playerPosition: cloneVector(request.playerPosition)
 });
+
+const resolveRuntimeStructureInteractionPulse = (
+  elapsedSeconds: number,
+  request: StructureConversionInteractionRequest | null,
+  expiresAtSeconds: number | null
+): RuntimeStructureInteractionPulse | null => {
+  if (
+    !request ||
+    expiresAtSeconds === null ||
+    expiresAtSeconds <= elapsedSeconds
+  ) {
+    return null;
+  }
+
+  return {
+    request: cloneStructureInteractionRequest(request),
+    remainingSeconds: expiresAtSeconds - elapsedSeconds
+  };
+};
 
 const average = (a: number, b: number): number => (a + b) * 0.5;
 
