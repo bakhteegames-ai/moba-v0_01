@@ -3,6 +3,17 @@ import { type DebugSystem } from '../debug/debugBuilder';
 import { layoutConfig, routeSelectionOrder } from '../config/layout';
 import { type HeadlessCombatRuntime } from '../gameplay/headlessCombatRuntime';
 import {
+  consumeActionPressed,
+  consumeBindingPressed,
+  isActionDown,
+  normalizeKeyboardActionKey,
+  shouldPreventDefault
+} from './playerInputActions';
+import {
+  bindWindowEvent,
+  getBrowserNowSeconds
+} from '../runtime/browserRuntime';
+import {
   colorFromHex,
   surfaceHeightAt,
   type RouteProbeResult,
@@ -95,23 +106,23 @@ export const createPlayerTestController = (
   } | null = null;
 
   const keydown = (event: KeyboardEvent): void => {
-    const key = normalizeKey(event.key);
+    const key = normalizeKeyboardActionKey(event.key);
     if (!keysDown.has(key)) {
       pressedKeys.add(key);
     }
     keysDown.add(key);
 
-    if (['[', ']', 'p', 'g', 'l', 'c', 'v', 'f', 'space'].includes(key)) {
+    if (shouldPreventDefault(key)) {
       event.preventDefault();
     }
   };
 
   const keyup = (event: KeyboardEvent): void => {
-    keysDown.delete(normalizeKey(event.key));
+    keysDown.delete(normalizeKeyboardActionKey(event.key));
   };
 
-  window.addEventListener('keydown', keydown);
-  window.addEventListener('keyup', keyup);
+  const removeKeydownListener = bindWindowEvent('keydown', keydown);
+  const removeKeyupListener = bindWindowEvent('keyup', keyup);
 
   teleportTo('midline');
   syncCombatPresentation();
@@ -143,12 +154,12 @@ export const createPlayerTestController = (
     },
     getProbeElapsedSeconds() {
       return activeProbe
-        ? performance.now() * 0.001 - activeProbe.startTimeSeconds
+        ? getBrowserNowSeconds() - activeProbe.startTimeSeconds
         : null;
     },
     destroy() {
-      window.removeEventListener('keydown', keydown);
-      window.removeEventListener('keyup', keyup);
+      removeKeydownListener();
+      removeKeyupListener();
       tacticalCamera.destroy();
       followCamera.destroy();
       laneBlocker.destroy();
@@ -157,47 +168,47 @@ export const createPlayerTestController = (
   };
 
   function processHotkeys(): void {
-    if (consumePressed('c')) {
+    if (consumeActionPressed(pressedKeys, 'toggle-camera')) {
       useFollowCamera = !useFollowCamera;
       tacticalCameraComponent.enabled = !useFollowCamera;
       followCameraComponent.enabled = useFollowCamera;
     }
 
-    if (consumePressed('v')) {
+    if (consumeActionPressed(pressedKeys, 'toggle-tactical-mode')) {
       topDownTactical = !topDownTactical;
     }
 
-    if (consumePressed('l')) {
+    if (consumeActionPressed(pressedKeys, 'toggle-labels')) {
       debugSystem.toggleLabels();
     }
 
-    if (consumePressed('g')) {
+    if (consumeActionPressed(pressedKeys, 'toggle-routes')) {
       debugSystem.toggleRoutes();
     }
 
-    if (consumePressed('f') || consumePressed('space')) {
+    if (consumeActionPressed(pressedKeys, 'primary-action')) {
       headlessCombat.requestPlayerBasicCast();
     }
 
-    if (consumePressed('[')) {
+    if (consumeActionPressed(pressedKeys, 'previous-route')) {
       selectedRouteIndex =
         (selectedRouteIndex + routeSelectionOrder.length - 1) %
         routeSelectionOrder.length;
       debugSystem.setSelectedRoute(routeSelectionOrder[selectedRouteIndex]);
     }
 
-    if (consumePressed(']')) {
+    if (consumeActionPressed(pressedKeys, 'next-route')) {
       selectedRouteIndex =
         (selectedRouteIndex + 1) % routeSelectionOrder.length;
       debugSystem.setSelectedRoute(routeSelectionOrder[selectedRouteIndex]);
     }
 
-    if (consumePressed('p')) {
+    if (consumeActionPressed(pressedKeys, 'start-probe')) {
       startSelectedProbe();
     }
 
     for (const teleport of layoutConfig.teleports) {
-      if (consumePressed(teleport.key.toLowerCase())) {
+      if (consumeBindingPressed(pressedKeys, [teleport.key.toLowerCase()])) {
         teleportTo(teleport.id);
       }
     }
@@ -207,16 +218,16 @@ export const createPlayerTestController = (
     let moveX = 0;
     let moveZ = 0;
 
-    if (keysDown.has('w') || keysDown.has('arrowup')) {
+    if (isActionDown(keysDown, 'move-up')) {
       moveZ -= 1;
     }
-    if (keysDown.has('s') || keysDown.has('arrowdown')) {
+    if (isActionDown(keysDown, 'move-down')) {
       moveZ += 1;
     }
-    if (keysDown.has('a') || keysDown.has('arrowleft')) {
+    if (isActionDown(keysDown, 'move-left')) {
       moveX -= 1;
     }
-    if (keysDown.has('d') || keysDown.has('arrowright')) {
+    if (isActionDown(keysDown, 'move-right')) {
       moveX += 1;
     }
 
@@ -311,7 +322,7 @@ export const createPlayerTestController = (
     }
 
     const elapsed =
-      performance.now() * 0.001 - activeProbe.startTimeSeconds;
+      getBrowserNowSeconds() - activeProbe.startTimeSeconds;
     const result: RouteProbeResult = {
       routeId: route.id,
       label: route.label,
@@ -335,7 +346,7 @@ export const createPlayerTestController = (
     syncCombatPresentation();
     activeProbe = {
       routeId: route.id,
-      startTimeSeconds: performance.now() * 0.001
+      startTimeSeconds: getBrowserNowSeconds()
     };
     debugSystem.setRouteResult(null);
   }
@@ -353,20 +364,4 @@ export const createPlayerTestController = (
     syncCombatPresentation();
     activeProbe = null;
   }
-
-  function consumePressed(key: string): boolean {
-    if (!pressedKeys.has(key)) {
-      return false;
-    }
-    pressedKeys.delete(key);
-    return true;
-  }
-};
-
-const normalizeKey = (key: string): string => {
-  if (key === ' ') {
-    return 'space';
-  }
-
-  return key.length === 1 ? key.toLowerCase() : key.toLowerCase();
 };
