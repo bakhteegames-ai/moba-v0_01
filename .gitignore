@@ -1,0 +1,15 @@
+node_modules/
+dist/
+output/
+.playwright-cli/
+
+.codex-temp*
+actual.zip
+unified.diff
+progress.md
+repomix-output.xml.docx
+
+vite.stderr.log
+vite.stdout.log
+*.pid
+*.log
