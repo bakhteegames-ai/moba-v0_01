@@ -3,11 +3,14 @@ import {
   type HeadlessCombatRuntime,
   type HeadlessCombatRuntimeSnapshot
 } from '../gameplay/headlessCombatRuntime';
+import { type RuntimeInteractionEvidenceEntry } from './runtimeInteractionEvidenceLedger';
 import {
   type LiveInteractionDebugState
 } from './liveInteractionValidator';
 
-export type RuntimeInteractionProbePresetId = 'structure-to-closure';
+export type RuntimeInteractionProbePresetId =
+  | 'structure-to-closure'
+  | 'defender-response-recovery';
 
 export type RuntimeInteractionProbePhase =
   | 'inactive'
@@ -15,8 +18,10 @@ export type RuntimeInteractionProbePhase =
   | 'clear-blocker'
   | 'wait-siege-window'
   | 'request-structure-commit'
+  | 'wait-defender-recovery-branch'
   | 'wait-structure-resolve'
   | 'request-closure-commit'
+  | 'wait-incident-evidence'
   | 'wait-ledger-evidence'
   | 'completed'
   | 'failed';
@@ -47,7 +52,8 @@ interface ProbeState {
   phase: RuntimeInteractionProbePhase;
   phaseStartedAtSeconds: number | null;
   startedAtSeconds: number | null;
-  baselineEvidenceCount: number;
+  baselineCompletedObservedAtSeconds: number | null;
+  branchIncidentObservedAtSeconds: number | null;
   requestedStart: RuntimeInteractionProbePresetId | null;
   completed: boolean;
   failed: boolean;
@@ -73,7 +79,8 @@ export const createRuntimeInteractionProbeHarness =
       phase: 'inactive',
       phaseStartedAtSeconds: null,
       startedAtSeconds: null,
-      baselineEvidenceCount: 0,
+      baselineCompletedObservedAtSeconds: null,
+      branchIncidentObservedAtSeconds: null,
       requestedStart: null,
       completed: false,
       failed: false,
@@ -94,13 +101,15 @@ export const createRuntimeInteractionProbeHarness =
           state.phase = 'teleport-to-structure';
           state.phaseStartedAtSeconds = combatSnapshot.elapsedSeconds;
           state.startedAtSeconds = combatSnapshot.elapsedSeconds;
-          state.baselineEvidenceCount =
-            liveInteractionSnapshot.runtimeEvidenceLedger.entries.length;
+          state.baselineCompletedObservedAtSeconds =
+            findLatestCompletedObservedAtSeconds(
+              liveInteractionSnapshot.runtimeEvidenceLedger.entries
+            );
+          state.branchIncidentObservedAtSeconds = null;
           state.requestedStart = null;
           state.completed = false;
           state.failed = false;
-          state.summary =
-            'Runtime probe is moving to the active structure anchor.';
+          state.summary = buildProbeStartSummary(state.presetId);
         }
 
         if (!state.active) {
@@ -114,7 +123,7 @@ export const createRuntimeInteractionProbeHarness =
         ) {
           failProbe(
             state,
-            'Runtime probe timed out before producing closure evidence.'
+            buildProbeTimeoutSummary(state.presetId)
           );
           return;
         }
@@ -167,6 +176,15 @@ export const createRuntimeInteractionProbeHarness =
           case 'request-structure-commit':
             runtime.teleportPlayer(structureProbeAnchor);
             runtime.requestPlayerBasicCast();
+            if (state.presetId === 'defender-response-recovery') {
+              advancePhase(
+                state,
+                combatSnapshot.elapsedSeconds,
+                'wait-defender-recovery-branch',
+                'Runtime probe is waiting for defender contest and push reassertion.'
+              );
+              return;
+            }
             advancePhase(
               state,
               combatSnapshot.elapsedSeconds,
@@ -174,6 +192,54 @@ export const createRuntimeInteractionProbeHarness =
               'Runtime probe is waiting for structure conversion to resolve.'
             );
             return;
+          case 'wait-defender-recovery-branch': {
+            runtime.teleportPlayer(structureProbeAnchor);
+            const defenderObserved = hasObservedDefenderResponse(
+              liveInteractionSnapshot
+            );
+            const recoveryObserved = hasObservedPushReassertion(
+              liveInteractionSnapshot
+            );
+
+            if (defenderObserved && recoveryObserved) {
+              state.branchIncidentObservedAtSeconds =
+                findLatestIncidentObservedAtSeconds(
+                  liveInteractionSnapshot.runtimeEvidenceLedger.entries
+                );
+              advancePhase(
+                state,
+                combatSnapshot.elapsedSeconds,
+                'wait-incident-evidence',
+                'Runtime probe observed defender contest and push reassertion and is waiting for non-pass evidence.'
+              );
+              return;
+            }
+
+            if (recoveryObserved) {
+              state.summary =
+                'Runtime probe observed blue push reassertion and is waiting for defender contest confirmation.';
+              return;
+            }
+
+            if (defenderObserved) {
+              state.summary =
+                'Runtime probe observed defender contest and is waiting for blue push reassertion.';
+              return;
+            }
+
+            if (
+              liveInteractionSnapshot.signalProvider.sharedStructureConversion
+                .lastResolvedStructureStep !== 'none'
+            ) {
+              state.summary =
+                'Runtime probe is holding the bounded structure step open for defender contest.';
+              return;
+            }
+
+            state.summary =
+              'Runtime probe is waiting for the structure branch to become contestable.';
+            return;
+          }
           case 'wait-structure-resolve':
             runtime.teleportPlayer(structureProbeAnchor);
             if (
@@ -198,13 +264,30 @@ export const createRuntimeInteractionProbeHarness =
               'Runtime probe is waiting for recent runtime evidence.'
             );
             return;
+          case 'wait-incident-evidence': {
+            runtime.teleportPlayer(structureProbeAnchor);
+            const incidentEntry = findNewIncidentEvidence(
+              liveInteractionSnapshot.runtimeEvidenceLedger.entries,
+              state.branchIncidentObservedAtSeconds
+            );
+            if (incidentEntry) {
+              state.active = false;
+              state.phase = 'completed';
+              state.phaseStartedAtSeconds = combatSnapshot.elapsedSeconds;
+              state.completed = true;
+              state.failed = false;
+              state.summary = `Runtime probe completed: ${incidentEntry.summary}`;
+              return;
+            }
+
+            state.summary =
+              'Runtime probe observed defender/recovery branch and is waiting for bounded non-pass evidence.';
+            return;
+          }
           case 'wait-ledger-evidence': {
-            const newEntries =
-              liveInteractionSnapshot.runtimeEvidenceLedger.entries.slice(
-                state.baselineEvidenceCount
-              );
-            const completedEntry = newEntries.find(
-              (entry) => entry.kind === 'completed-sequence'
+            const completedEntry = findNewCompletedEvidence(
+              liveInteractionSnapshot.runtimeEvidenceLedger.entries,
+              state.baselineCompletedObservedAtSeconds
             );
             if (completedEntry) {
               state.active = false;
@@ -218,8 +301,7 @@ export const createRuntimeInteractionProbeHarness =
 
             if (
               liveInteractionSnapshot.signalProvider.sharedClosureAdvancement
-                .lastResolvedClosureStep !== 'none' &&
-              newEntries.length > 0
+                .lastResolvedClosureStep !== 'none'
             ) {
               state.summary =
                 'Runtime probe reached closure resolution and is waiting for the ledger entry.';
@@ -270,9 +352,88 @@ const resetProbeState = (state: ProbeState, summary: string): void => {
   state.phase = 'inactive';
   state.phaseStartedAtSeconds = null;
   state.startedAtSeconds = null;
-  state.baselineEvidenceCount = 0;
+  state.baselineCompletedObservedAtSeconds = null;
+  state.branchIncidentObservedAtSeconds = null;
   state.requestedStart = null;
   state.completed = false;
   state.failed = false;
   state.summary = summary;
 };
+
+const buildProbeStartSummary = (
+  presetId: RuntimeInteractionProbePresetId | null
+): string =>
+  presetId === 'defender-response-recovery'
+    ? 'Runtime probe is moving to the active structure anchor for the defender/recovery branch.'
+    : 'Runtime probe is moving to the active structure anchor.';
+
+const buildProbeTimeoutSummary = (
+  presetId: RuntimeInteractionProbePresetId | null
+): string =>
+  presetId === 'defender-response-recovery'
+    ? 'Runtime probe timed out before producing defender/recovery incident evidence.'
+    : 'Runtime probe timed out before producing closure evidence.';
+
+const hasObservedDefenderResponse = (
+  liveInteractionSnapshot: LiveInteractionDebugState
+): boolean =>
+  liveInteractionSnapshot.signalProvider.sharedDefenderResponse.responseActive ||
+  liveInteractionSnapshot.signalProvider.sharedDefenderResponse
+    .lastResolvedResponseAction !== 'none';
+
+const hasObservedPushReassertion = (
+  liveInteractionSnapshot: LiveInteractionDebugState
+): boolean =>
+  liveInteractionSnapshot.signalProvider.sharedPushReassertion.recoveryActive ||
+  liveInteractionSnapshot.signalProvider.sharedPushReassertion
+    .lastResolvedRecoveryAction !== 'none';
+
+const findLatestCompletedObservedAtSeconds = (
+  entries: RuntimeInteractionEvidenceEntry[]
+): number | null => {
+  const completedEntry = [...entries]
+    .reverse()
+    .find((entry) => entry.kind === 'completed-sequence');
+  return completedEntry?.observedAtSeconds ?? null;
+};
+
+const findLatestIncidentObservedAtSeconds = (
+  entries: RuntimeInteractionEvidenceEntry[]
+): number | null => {
+  const incidentEntry = [...entries]
+    .reverse()
+    .find((entry) => entry.kind === 'incident');
+  return incidentEntry?.observedAtSeconds ?? null;
+};
+
+const findNewCompletedEvidence = (
+  entries: RuntimeInteractionEvidenceEntry[],
+  baselineCompletedObservedAtSeconds: number | null
+): RuntimeInteractionEvidenceEntry | undefined =>
+  [...entries]
+    .reverse()
+    .find(
+      (entry) =>
+        entry.kind === 'completed-sequence' &&
+        (
+          baselineCompletedObservedAtSeconds === null ||
+          entry.observedAtSeconds >
+            baselineCompletedObservedAtSeconds + 0.0001
+        )
+    );
+
+const findNewIncidentEvidence = (
+  entries: RuntimeInteractionEvidenceEntry[],
+  branchIncidentObservedAtSeconds: number | null
+): RuntimeInteractionEvidenceEntry | undefined =>
+  [...entries]
+    .reverse()
+    .find(
+      (entry) =>
+        entry.kind === 'incident' &&
+        (
+          branchIncidentObservedAtSeconds === null ||
+          entry.observedAtSeconds >
+            branchIncidentObservedAtSeconds + 0.0001
+        )
+    );

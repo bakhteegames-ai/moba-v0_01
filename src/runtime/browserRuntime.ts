@@ -3,6 +3,12 @@ export interface BrowserRuntimeDebugBindings {
   renderGameToText: () => string;
   startRuntimeProbe?: () => void;
   clearRuntimeProbe?: () => void;
+  resetRuntimeValidationState?: () => void;
+  runCleanRuntimeProbe?: () => void;
+  runCleanRuntimeDefenderProbe?: () => void;
+  runStructureToClosureSmoke?: () => void;
+  runDefenderResponseRecoverySmoke?: () => void;
+  runFullRuntimeValidationCycle?: () => void;
 }
 
 type BrowserDebugWindow = Window & {
@@ -10,6 +16,12 @@ type BrowserDebugWindow = Window & {
   render_game_to_text?: () => string;
   start_runtime_probe?: () => void;
   clear_runtime_probe?: () => void;
+  reset_runtime_validation_state?: () => void;
+  run_clean_runtime_probe?: () => void;
+  run_clean_runtime_defender_probe?: () => void;
+  run_structure_to_closure_smoke?: () => void;
+  run_defender_response_recovery_smoke?: () => void;
+  run_full_runtime_validation_cycle?: () => void;
 };
 
 export const requireBrowserCanvas = (elementId: string): HTMLCanvasElement => {
@@ -43,5 +55,28 @@ export const installBrowserDebugBindings = (
   }
   if (bindings.clearRuntimeProbe) {
     debugWindow.clear_runtime_probe = bindings.clearRuntimeProbe;
+  }
+  if (bindings.resetRuntimeValidationState) {
+    debugWindow.reset_runtime_validation_state =
+      bindings.resetRuntimeValidationState;
+  }
+  if (bindings.runCleanRuntimeProbe) {
+    debugWindow.run_clean_runtime_probe = bindings.runCleanRuntimeProbe;
+  }
+  if (bindings.runCleanRuntimeDefenderProbe) {
+    debugWindow.run_clean_runtime_defender_probe =
+      bindings.runCleanRuntimeDefenderProbe;
+  }
+  if (bindings.runStructureToClosureSmoke) {
+    debugWindow.run_structure_to_closure_smoke =
+      bindings.runStructureToClosureSmoke;
+  }
+  if (bindings.runDefenderResponseRecoverySmoke) {
+    debugWindow.run_defender_response_recovery_smoke =
+      bindings.runDefenderResponseRecoverySmoke;
+  }
+  if (bindings.runFullRuntimeValidationCycle) {
+    debugWindow.run_full_runtime_validation_cycle =
+      bindings.runFullRuntimeValidationCycle;
   }
 };

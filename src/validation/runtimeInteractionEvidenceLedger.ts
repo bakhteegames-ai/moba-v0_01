@@ -37,6 +37,10 @@ export interface RuntimeInteractionEvidenceLedger {
     observation: RuntimeInteractionObservationSnapshot,
     assessment: RuntimeInteractionSequenceAssessmentSnapshot
   ): void;
+  reset(
+    observation?: RuntimeInteractionObservationSnapshot,
+    assessment?: RuntimeInteractionSequenceAssessmentSnapshot
+  ): void;
   getSnapshot(): RuntimeInteractionEvidenceLedgerSnapshot;
 }
 
@@ -57,18 +61,7 @@ const evidenceCapacity = 5;
 
 export const createRuntimeInteractionEvidenceLedger =
   (): RuntimeInteractionEvidenceLedger => {
-    const state: EvidenceLedgerState = {
-      entries: [],
-      activeSequenceStartSeconds: null,
-      previous: {
-        pulseStartSeconds: null,
-        siegeWindowOpenSeconds: null,
-        closureResolveSeconds: null,
-        orderingState: 'awaiting-next-step',
-        windowPlausibility: 'idle',
-        progressionState: 'idle'
-      }
-    };
+    const state: EvidenceLedgerState = createDefaultEvidenceLedgerState();
 
     return {
       update(observation, assessment) {
@@ -191,6 +184,21 @@ export const createRuntimeInteractionEvidenceLedger =
           progressionState: observation.progressionState
         };
       },
+      reset(observation) {
+        Object.assign(state, createDefaultEvidenceLedgerState());
+        if (!observation) {
+          return;
+        }
+
+        state.previous = {
+          pulseStartSeconds: observation.lastObserved.pulseStartSeconds,
+          siegeWindowOpenSeconds: observation.lastObserved.siegeWindowOpenSeconds,
+          closureResolveSeconds: observation.lastObserved.closureResolveSeconds,
+          orderingState: observation.orderingState,
+          windowPlausibility: observation.windowPlausibility,
+          progressionState: observation.progressionState
+        };
+      },
       getSnapshot() {
         return {
           capacity: evidenceCapacity,
@@ -200,6 +208,19 @@ export const createRuntimeInteractionEvidenceLedger =
       }
     };
   };
+
+const createDefaultEvidenceLedgerState = (): EvidenceLedgerState => ({
+  entries: [],
+  activeSequenceStartSeconds: null,
+  previous: {
+    pulseStartSeconds: null,
+    siegeWindowOpenSeconds: null,
+    closureResolveSeconds: null,
+    orderingState: 'awaiting-next-step',
+    windowPlausibility: 'idle',
+    progressionState: 'idle'
+  }
+});
 
 const deriveCompletedSequenceVerdict = (
   observation: RuntimeInteractionObservationSnapshot

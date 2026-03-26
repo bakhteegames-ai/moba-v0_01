@@ -27,6 +27,7 @@ export interface RuntimeInteractionSequenceAssessmentSnapshot {
 
 export interface RuntimeInteractionSequenceAssessment {
   update(snapshot: RuntimeInteractionObservationSnapshot): void;
+  reset(snapshot?: RuntimeInteractionObservationSnapshot): void;
   getSnapshot(): RuntimeInteractionSequenceAssessmentSnapshot;
 }
 
@@ -48,25 +49,7 @@ interface AssessmentState {
 
 export const createRuntimeInteractionSequenceAssessment =
   (): RuntimeInteractionSequenceAssessment => {
-    const state: AssessmentState = {
-      observedSequenceCount: 0,
-      completedSequenceCount: 0,
-      incidentCounts: {
-        outOfOrder: 0,
-        lingeringWindow: 0,
-        stalls: 0
-      },
-      activeSequenceStartSeconds: null,
-      lastCompletedSequenceSummary: null,
-      previous: {
-        pulseStartSeconds: null,
-        siegeWindowOpenSeconds: null,
-        closureResolveSeconds: null,
-        orderingState: 'awaiting-next-step',
-        windowPlausibility: 'idle',
-        progressionState: 'idle'
-      }
-    };
+    const state: AssessmentState = createDefaultAssessmentState();
 
     return {
       update(snapshot) {
@@ -143,6 +126,21 @@ export const createRuntimeInteractionSequenceAssessment =
           progressionState: snapshot.progressionState
         };
       },
+      reset(snapshot) {
+        Object.assign(state, createDefaultAssessmentState());
+        if (!snapshot) {
+          return;
+        }
+
+        state.previous = {
+          pulseStartSeconds: snapshot.lastObserved.pulseStartSeconds,
+          siegeWindowOpenSeconds: snapshot.lastObserved.siegeWindowOpenSeconds,
+          closureResolveSeconds: snapshot.lastObserved.closureResolveSeconds,
+          orderingState: snapshot.orderingState,
+          windowPlausibility: snapshot.windowPlausibility,
+          progressionState: snapshot.progressionState
+        };
+      },
       getSnapshot() {
         const currentLiveSequenceHealth = deriveCurrentSequenceHealth(state);
         const overallVerdict = deriveOverallVerdict(
@@ -166,6 +164,26 @@ export const createRuntimeInteractionSequenceAssessment =
       }
     };
   };
+
+const createDefaultAssessmentState = (): AssessmentState => ({
+  observedSequenceCount: 0,
+  completedSequenceCount: 0,
+  incidentCounts: {
+    outOfOrder: 0,
+    lingeringWindow: 0,
+    stalls: 0
+  },
+  activeSequenceStartSeconds: null,
+  lastCompletedSequenceSummary: null,
+  previous: {
+    pulseStartSeconds: null,
+    siegeWindowOpenSeconds: null,
+    closureResolveSeconds: null,
+    orderingState: 'awaiting-next-step',
+    windowPlausibility: 'idle',
+    progressionState: 'idle'
+  }
+});
 
 const deriveCurrentSequenceHealth = (
   state: AssessmentState

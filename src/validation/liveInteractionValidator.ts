@@ -112,6 +112,7 @@ export interface LiveInteractionValidator {
     structureInteractionRequest?: StructureConversionInteractionRequest | null,
     runtimeLaneTelemetry?: RuntimeLaneTelemetrySnapshot | null
   ): void;
+  resetRuntimeDebugState(): void;
   getDebugState(): LiveInteractionDebugState;
   getCalibrationOperatorControls(): LiveInteractionCalibrationOperatorControls;
   destroy(): void;
@@ -138,6 +139,16 @@ export const createLiveInteractionValidator = (): LiveInteractionValidator => {
   const refreshDebugState = (): void => {
     elapsedSinceRefresh = 0;
     debugState = computeDebugState();
+  };
+
+  const resetRuntimeDebugState = (): void => {
+    const liveSignalProviderDebug = signalProvider.getDebugState();
+    runtimeObservation.reset(liveSignalProviderDebug);
+    const observationSnapshot = runtimeObservation.getSnapshot();
+    runtimeSequenceAssessment.reset(observationSnapshot);
+    const assessmentSnapshot = runtimeSequenceAssessment.getSnapshot();
+    runtimeEvidenceLedger.reset(observationSnapshot, assessmentSnapshot);
+    refreshDebugState();
   };
 
   const calibrationOperatorControls: LiveInteractionCalibrationOperatorControls = {
@@ -207,6 +218,9 @@ export const createLiveInteractionValidator = (): LiveInteractionValidator => {
     },
     getDebugState() {
       return debugState;
+    },
+    resetRuntimeDebugState() {
+      resetRuntimeDebugState();
     },
     getCalibrationOperatorControls() {
       return calibrationOperatorControls;

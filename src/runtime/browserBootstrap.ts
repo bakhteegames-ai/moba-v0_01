@@ -10,6 +10,12 @@ export interface BrowserBootstrapBindings {
   renderGameToText: () => string;
   startRuntimeProbe?: () => void;
   clearRuntimeProbe?: () => void;
+  resetRuntimeValidationState?: () => void;
+  runCleanRuntimeProbe?: () => void;
+  runCleanRuntimeDefenderProbe?: () => void;
+  runStructureToClosureSmoke?: () => void;
+  runDefenderResponseRecoverySmoke?: () => void;
+  runFullRuntimeValidationCycle?: () => void;
 }
 
 export const createBrowserApplication = (
@@ -37,6 +43,12 @@ export const wireBrowserRuntime = (
     },
     renderGameToText: bindings.renderGameToText,
     startRuntimeProbe: bindings.startRuntimeProbe,
-    clearRuntimeProbe: bindings.clearRuntimeProbe
+    clearRuntimeProbe: bindings.clearRuntimeProbe,
+    resetRuntimeValidationState: bindings.resetRuntimeValidationState,
+    runCleanRuntimeProbe: bindings.runCleanRuntimeProbe,
+    runCleanRuntimeDefenderProbe: bindings.runCleanRuntimeDefenderProbe,
+    runStructureToClosureSmoke: bindings.runStructureToClosureSmoke,
+    runDefenderResponseRecoverySmoke: bindings.runDefenderResponseRecoverySmoke,
+    runFullRuntimeValidationCycle: bindings.runFullRuntimeValidationCycle
   });
 };

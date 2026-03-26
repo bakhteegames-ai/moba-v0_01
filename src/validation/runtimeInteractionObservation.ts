@@ -47,6 +47,7 @@ export interface RuntimeInteractionObservationSnapshot {
 
 export interface RuntimeInteractionObservation {
   update(snapshot: LivePrototypeSignalProviderDebugState): void;
+  reset(snapshot?: LivePrototypeSignalProviderDebugState): void;
   getSnapshot(): RuntimeInteractionObservationSnapshot;
 }
 
@@ -85,30 +86,7 @@ const maxStructureContactWindowSeconds = 5.2;
 
 export const createRuntimeInteractionObservation =
   (): RuntimeInteractionObservation => {
-    const state: ObservationState = {
-      elapsedSeconds: 0,
-      currentPhase: 'idle',
-      phaseStartedAtSeconds: 0,
-      lastObserved: {
-        contactStartSeconds: null,
-        pulseStartSeconds: null,
-        pulseExpireSeconds: null,
-        siegeWindowOpenSeconds: null,
-        structureAdvanceSeconds: null,
-        structureResolveSeconds: null,
-        closureAdvanceSeconds: null,
-        closureResolveSeconds: null
-      },
-      previous: {
-        contactActive: false,
-        pulseActive: false,
-        siegeWindowActive: false,
-        structureProgress: 0,
-        structureResolved: false,
-        closureValue: 0,
-        closureResolved: false
-      }
-    };
+    const state: ObservationState = createDefaultObservationState();
 
     return {
       update(snapshot) {
@@ -168,6 +146,17 @@ export const createRuntimeInteractionObservation =
           closureResolved
         };
       },
+      reset(snapshot) {
+        Object.assign(state, createDefaultObservationState());
+        if (!snapshot) {
+          return;
+        }
+
+        state.elapsedSeconds = snapshot.elapsedSeconds;
+        state.currentPhase = deriveObservationPhase(snapshot);
+        state.phaseStartedAtSeconds = snapshot.elapsedSeconds;
+        state.previous = derivePreviousObservationFlags(snapshot);
+      },
       getSnapshot() {
         const currentPhaseAgeSeconds = Math.max(
           0,
@@ -198,6 +187,45 @@ export const createRuntimeInteractionObservation =
       }
     };
   };
+
+const createDefaultObservationState = (): ObservationState => ({
+  elapsedSeconds: 0,
+  currentPhase: 'idle',
+  phaseStartedAtSeconds: 0,
+  lastObserved: {
+    contactStartSeconds: null,
+    pulseStartSeconds: null,
+    pulseExpireSeconds: null,
+    siegeWindowOpenSeconds: null,
+    structureAdvanceSeconds: null,
+    structureResolveSeconds: null,
+    closureAdvanceSeconds: null,
+    closureResolveSeconds: null
+  },
+  previous: {
+    contactActive: false,
+    pulseActive: false,
+    siegeWindowActive: false,
+    structureProgress: 0,
+    structureResolved: false,
+    closureValue: 0,
+    closureResolved: false
+  }
+});
+
+const derivePreviousObservationFlags = (
+  snapshot: LivePrototypeSignalProviderDebugState
+): PreviousObservationFlags => ({
+  contactActive: hasRuntimeContact(snapshot),
+  pulseActive: snapshot.runtimeLaneTelemetry?.interactionPulse.active === true,
+  siegeWindowActive: snapshot.sharedSiegeWindow.siegeWindowActive,
+  structureProgress: snapshot.sharedStructureConversion.conversionProgress,
+  structureResolved:
+    snapshot.sharedStructureConversion.lastResolvedStructureStep !== 'none',
+  closureValue: snapshot.sharedClosureAdvancement.closureAdvancementValue,
+  closureResolved:
+    snapshot.sharedClosureAdvancement.lastResolvedClosureStep !== 'none'
+});
 
 const hasRuntimeContact = (
   snapshot: LivePrototypeSignalProviderDebugState
